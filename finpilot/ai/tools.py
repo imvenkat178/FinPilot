@@ -1,0 +1,837 @@
+"""Calculation tools exposed to the assistant.
+
+Every tool is a deterministic service. The model chooses which one to call and
+writes the explanation; it never produces a number itself. Each result carries
+its own inputs, assumptions and confidence so AI03 -- "Show calculation inputs,
+source references, dates, assumptions, and alternatives for consequential
+answers" -- is satisfied from the data rather than from the prose.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import date, timedelta
+from decimal import Decimal as D
+from typing import Any, Callable, Optional
+
+from ..engine.allocator import AllocationEngine
+from ..engine.cards import (Alternative, Channel, Purchase, bill_payment_comparison,
+                            compare_channels, interest_vs_reward, rank_cards,
+                            utilization_timing)
+from ..engine.coverage import (DeclaredDeposit, build_coverage, coverage_remedy,
+                               stress_collateral)
+from ..engine.debt import (DebtSnapshot, Strategy, biweekly_comparison,
+                           compare_strategies, mortgage_scenarios,
+                           promo_payoff_reserve)
+from ..engine.ledger import LedgerEngine
+from ..engine.liquidity import (BufferEngine, assess_sweep, classify_liquidity,
+                                compare_timing)
+from ..engine.tax import (TaxProfile, compare_savings_vs_debt,
+                          interest_deduction_check)
+from ..models import AccountType, Confidence, Household, PolicyPurpose
+from ..money import Money, msum
+
+
+@dataclass
+class ToolSpec:
+    name: str
+    description: str
+    parameters: dict
+    fn: Callable[..., dict]
+    consequential: bool = False
+    intents: tuple[str, ...] = ()
+
+
+class ToolRegistry:
+    """Binds the calculators to one household with one permission scope."""
+
+    def __init__(self, household: Household, tax_profile: Optional[TaxProfile] = None,
+                 execution=None, allowed_account_ids: Optional[set[str]] = None):
+        self.hh = household
+        self.tax = tax_profile or TaxProfile()
+        self.execution = execution
+        self.scope = allowed_account_ids
+        self.cur = household.base_currency
+        self._specs: dict[str, ToolSpec] = {}
+        self._register_all()
+
+    # -- permission scope (TR01) ---------------------------------------
+    def _in_scope(self, account_id: str) -> bool:
+        return self.scope is None or account_id in self.scope
+
+    def _accounts(self):
+        return [a for a in self.hh.accounts.values() if self._in_scope(a.id)]
+
+    # ------------------------------------------------------------------
+    def spec(self, name: str) -> Optional[ToolSpec]:
+        return self._specs.get(name)
+
+    def names(self) -> list[str]:
+        return list(self._specs)
+
+    def openai_schemas(self) -> list[dict]:
+        return [{"type": "function",
+                 "function": {"name": s.name, "description": s.description,
+                              "parameters": s.parameters}}
+                for s in self._specs.values()]
+
+    def call(self, name: str, arguments: Optional[dict] = None) -> dict:
+        spec = self._specs.get(name)
+        if spec is None:
+            return {"error": f"unknown tool {name}",
+                    "available": list(self._specs)}
+        try:
+            out = spec.fn(**(arguments or {}))
+        except TypeError as e:
+            return {"error": f"bad arguments for {name}: {e}",
+                    "expected": spec.parameters}
+        except Exception as e:
+            # a tool failure must never be narrated as success
+            return {"error": f"{name} failed: {type(e).__name__}: {e}",
+                    "tool_failed": True}
+        out.setdefault("_tool", name)
+        return out
+
+    def _add(self, name, description, parameters, fn, consequential=False, intents=()):
+        self._specs[name] = ToolSpec(name, description, parameters, fn,
+                                     consequential, intents)
+
+    # ==================================================================
+    def _register_all(self) -> None:
+        NO_ARGS = {"type": "object", "properties": {}, "required": []}
+
+        # ---- money overview -------------------------------------------
+        self._add("get_money_overview",
+                  "All money across every included account: balances by type, "
+                  "total cash, total debt, net worth, and what is actually "
+                  "spendable today.",
+                  NO_ARGS, self.get_money_overview,
+                  intents=("overview", "balances", "net_worth"))
+
+        self._add("get_paycheck_plan",
+                  "The dated allocation of each paycheck this month across bills, "
+                  "reserves, debt and goals, with the reason for every amount and "
+                  "any shortfall.",
+                  {"type": "object", "properties": {
+                      "year": {"type": "integer"}, "month": {"type": "integer"}},
+                   "required": []},
+                  self.get_paycheck_plan,
+                  intents=("paycheck", "split", "allocation", "plan"))
+
+        self._add("get_spending_allowance",
+                  "How much is safe to spend through a named date after required "
+                  "commitments and protected reserves, computed from the lowest "
+                  "projected balance rather than the ending balance.",
+                  {"type": "object", "properties": {
+                      "days": {"type": "integer", "description": "horizon, default 14"},
+                      "account_id": {"type": "string"}}, "required": []},
+                  self.get_spending_allowance,
+                  intents=("afford", "spend", "allowance"))
+
+        self._add("get_cash_forecast",
+                  "Daily projected balance for an account, with the low point and "
+                  "any date the balance would go negative.",
+                  {"type": "object", "properties": {
+                      "account_id": {"type": "string"},
+                      "days": {"type": "integer"}}, "required": []},
+                  self.get_cash_forecast, intents=("forecast", "low", "negative"))
+
+        self._add("get_upcoming_obligations",
+                  "Bills and required payments due in the next N days with their "
+                  "funding account and confirmation state.",
+                  {"type": "object", "properties": {"days": {"type": "integer"}},
+                   "required": []},
+                  self.get_upcoming_obligations, intents=("bills", "due", "upcoming"))
+
+        # ---- debt ------------------------------------------------------
+        self._add("compare_debt_strategies",
+                  "Compare repayment orderings under one budget: lowest modelled "
+                  "cost, smallest balance first, equal shares. Returns payoff "
+                  "dates, total interest and the cost premium of each.",
+                  {"type": "object", "properties": {
+                      "extra_payment": {"type": "number",
+                                        "description": "extra above required minimums"},
+                      "use_worked_example": {"type": "boolean",
+                                             "description": "use the specification's "
+                                             "section 8 fixture instead of the "
+                                             "household's own debts"}},
+                   "required": []},
+                  self.compare_debt_strategies, True,
+                  ("debt", "payoff", "snowball", "avalanche", "repayment"))
+
+        self._add("what_if_extra_payment",
+                  "The effect of adding a specific extra amount to debt every "
+                  "month: revised payoff dates, modelled cost difference and the "
+                  "effect on the cash floor.",
+                  {"type": "object", "properties": {
+                      "amount": {"type": "number"}},
+                   "required": ["amount"]},
+                  self.what_if_extra_payment, True, ("extra", "what if", "more"))
+
+        self._add("get_mortgage_scenarios",
+                  "Model continuing scheduled payments, adding regular principal, "
+                  "a lump sum keeping the same installment, and a conditional "
+                  "recast after that lump sum.",
+                  {"type": "object", "properties": {
+                      "lump_sum": {"type": "number"},
+                      "extra_monthly": {"type": "number"}}, "required": []},
+                  self.get_mortgage_scenarios, True,
+                  ("mortgage", "recast", "prepay", "principal"))
+
+        self._add("compare_biweekly_mortgage",
+                  "Compare a biweekly mortgage program with monthly payments plus "
+                  "extra principal under the same annual budget.",
+                  {"type": "object", "properties": {
+                      "program_fee_per_year": {"type": "number"}}, "required": []},
+                  self.compare_biweekly_mortgage, intents=("biweekly", "fortnightly"))
+
+        self._add("plan_promotional_payoff",
+                  "Compute the per-paycheck reserve needed to clear a promotional "
+                  "balance before its deadline.",
+                  {"type": "object", "properties": {
+                      "balance": {"type": "number"},
+                      "paychecks_remaining": {"type": "integer"}},
+                   "required": ["balance", "paychecks_remaining"]},
+                  self.plan_promotional_payoff, intents=("promo", "0%", "deferred"))
+
+        # ---- cards -----------------------------------------------------
+        self._add("choose_card",
+                  "Rank the cards you already own for a specific purchase, using "
+                  "net value after fees, caps, lost discounts and any borrowing "
+                  "cost. Never recommends opening a new card.",
+                  {"type": "object", "properties": {
+                      "amount": {"type": "number"},
+                      "category": {"type": "string",
+                                   "enum": ["dining", "groceries", "travel", "fuel",
+                                            "transit", "subscriptions", "shopping",
+                                            "utilities", "base"]},
+                      "merchant": {"type": "string"},
+                      "channel": {"type": "string",
+                                  "enum": ["in_person", "online", "portal", "direct",
+                                           "recurring_bill", "delivery"]},
+                      "foreign": {"type": "boolean"},
+                      "mcc_certain": {"type": "boolean"},
+                      "processing_fee_rate": {"type": "number"}},
+                   "required": ["amount"]},
+                  self.choose_card, intents=("card", "which card", "pay with"))
+
+        self._add("compare_card_vs_bank_for_bill",
+                  "Compare paying a bill with a card against the existing bank or "
+                  "debit option, including processing fees and any lost autopay "
+                  "discount.",
+                  {"type": "object", "properties": {
+                      "amount": {"type": "number"},
+                      "card_rate": {"type": "number"},
+                      "processing_fee_rate": {"type": "number"},
+                      "lost_autopay_discount": {"type": "number"}},
+                   "required": ["amount"]},
+                  self.compare_card_vs_bank_for_bill, intents=("bill", "fee", "surcharge"))
+
+        self._add("compare_booking_channels",
+                  "Compare a direct booking against a portal booking on total price "
+                  "after rewards.",
+                  {"type": "object", "properties": {
+                      "direct_price": {"type": "number"}, "direct_rate": {"type": "number"},
+                      "portal_price": {"type": "number"}, "portal_rate": {"type": "number"}},
+                   "required": ["direct_price", "portal_price"]},
+                  self.compare_booking_channels, intents=("hotel", "portal", "booking"))
+
+        self._add("check_utilization_timing",
+                  "Compare paying a card before statement close against paying at "
+                  "the due date, showing the effect on reported credit utilization "
+                  "while preserving the grace period.",
+                  {"type": "object", "properties": {
+                      "card_id": {"type": "string"}, "payment": {"type": "number"}},
+                   "required": []},
+                  self.check_utilization_timing,
+                  intents=("utilization", "credit score", "statement close"))
+
+        # ---- liquidity and timing -------------------------------------
+        self._add("get_buffer",
+                  "How much cash an account must retain to meet its own dated "
+                  "obligations, and how much is genuinely sweepable.",
+                  {"type": "object", "properties": {"account_id": {"type": "string"}},
+                   "required": []},
+                  self.get_buffer, intents=("buffer", "cushion", "floor", "sweep"))
+
+        self._add("assess_sweep_move",
+                  "Whether moving a specific amount to a higher-yield existing "
+                  "account is economic after tax, fees and the holding period.",
+                  {"type": "object", "properties": {
+                      "amount": {"type": "number"}, "hold_days": {"type": "integer"},
+                      "destination_apy": {"type": "number"},
+                      "transfer_fee": {"type": "number"}},
+                   "required": ["amount"]},
+                  self.assess_sweep_move, intents=("move", "sweep", "yield"))
+
+        self._add("get_liquidity_tiers",
+                  "Classify every asset by verified accessibility, separating "
+                  "spendable cash from investments and from borrowing capacity.",
+                  NO_ARGS, self.get_liquidity_tiers, intents=("liquid", "access", "tiers"))
+
+        self._add("compare_payment_timing",
+                  "Compare holding cash against the cost of delaying a payment, "
+                  "including the latest safe initiation date.",
+                  {"type": "object", "properties": {
+                      "amount": {"type": "number"}, "due_date": {"type": "string"},
+                      "debt_apr": {"type": "number"}, "cash_apy": {"type": "number"},
+                      "accrues_daily": {"type": "boolean"}},
+                   "required": ["amount", "due_date"]},
+                  self.compare_payment_timing, intents=("when to pay", "timing", "early"))
+
+        # ---- tax --------------------------------------------------------
+        self._add("compare_savings_vs_debt",
+                  "Net benefit comparison: keep the cash, or apply it to an "
+                  "existing debt, over the same period after supported taxes and "
+                  "fees.",
+                  {"type": "object", "properties": {
+                      "amount": {"type": "number"}, "horizon_days": {"type": "integer"}},
+                   "required": ["amount"]},
+                  self.compare_savings_vs_debt, True,
+                  ("save or pay", "net benefit", "after tax"))
+
+        self._add("check_interest_deduction",
+                  "Whether interest on a loan type can qualify for a deduction, "
+                  "with the conditions that must be verified first.",
+                  {"type": "object", "properties": {
+                      "loan_type": {"type": "string",
+                                    "enum": ["mortgage", "student_loan", "credit_card",
+                                             "auto_loan", "investment"]}},
+                   "required": ["loan_type"]},
+                  self.check_interest_deduction, intents=("deduct", "tax", "write off"))
+
+        # ---- coverage and entities --------------------------------------
+        self._add("get_deposit_coverage",
+                  "Estimated insured and uncovered deposits by underlying "
+                  "institution, owner and ownership category, including sweep "
+                  "look-through.",
+                  NO_ARGS, self.get_deposit_coverage,
+                  intents=("insured", "fdic", "ncua", "coverage", "protected"))
+
+        self._add("plan_coverage_remedy",
+                  "How much to move from an over-limit institution to an existing "
+                  "eligible account, and what must be confirmed first.",
+                  {"type": "object", "properties": {
+                      "source_institution": {"type": "string"},
+                      "destination_institution": {"type": "string"}},
+                   "required": ["source_institution"]},
+                  self.plan_coverage_remedy, True, ("uninsured", "move", "excess"))
+
+        self._add("stress_collateral_line",
+                  "Stress an existing securities-backed line: market decline, "
+                  "advance-rate cut, resulting headroom or deficiency.",
+                  {"type": "object", "properties": {
+                      "collateral_value": {"type": "number"},
+                      "advance_rate": {"type": "number"},
+                      "drawn": {"type": "number"},
+                      "decline": {"type": "number"},
+                      "reduced_advance_rate": {"type": "number"}},
+                   "required": ["collateral_value", "advance_rate", "drawn"]},
+                  self.stress_collateral_line, intents=("collateral", "margin", "sbloc"))
+
+        # ---- automation and execution ------------------------------------
+        self._add("get_automation_status",
+                  "Upcoming automated runs, their amounts and bounds, the mandate "
+                  "behind each, and anything unresolved.",
+                  NO_ARGS, self.get_automation_status,
+                  intents=("automation", "recurring", "rules", "scheduled"))
+
+        self._add("explain_transfer_outcome",
+                  "Why a scheduled transfer did not run, naming the actual failed "
+                  "check or provider state and the recovery available.",
+                  {"type": "object", "properties": {"leg_id": {"type": "string"}},
+                   "required": []},
+                  self.explain_transfer_outcome,
+                  intents=("failed", "did not run", "why", "transfer"))
+
+        self._add("stress_income_loss",
+                  "A separate stress scenario: lose income for N months. Shows "
+                  "unmet obligations, reserve use and what must change.",
+                  {"type": "object", "properties": {"months": {"type": "integer"}},
+                   "required": []},
+                  self.stress_income_loss, intents=("lose", "job", "stress", "what if"))
+
+        self._add("explain_product_boundary",
+                  "Explain what this application will not do: recommend opening "
+                  "accounts, select securities, or determine eligibility.",
+                  {"type": "object", "properties": {"topic": {"type": "string"}},
+                   "required": []},
+                  self.explain_product_boundary,
+                  intents=("invest", "buy", "stock", "should i open"))
+
+    # ==================================================================
+    # implementations
+    # ==================================================================
+    def get_money_overview(self) -> dict:
+        by_type: dict[str, Money] = {}
+        rows = []
+        for a in self._accounts():
+            key = a.type.value
+            by_type[key] = by_type.get(key, Money.zero(self.cur)) + a.current
+            rows.append({"id": a.id, "name": a.nickname, "type": a.type.value,
+                         "institution": a.institution,
+                         "mask": a.mask, "current": a.current.to_json(),
+                         "available": a.available.to_json(),
+                         "spendable": a.spendable.to_json(),
+                         "protection": a.protection.value,
+                         "liquidity_tier": a.liquidity_tier.value,
+                         "connection_healthy": a.connection_healthy,
+                         "as_of": a.provenance.as_of.isoformat() if a.provenance.as_of else None,
+                         "verification": a.provenance.verification.value})
+        gross_spendable = msum([a.spendable for a in self._accounts()], self.cur)
+        protected = self.hh.protected_reserves()
+        spendable = (gross_spendable - protected).clamp_min_zero()
+        reserves = [{"name": r.name, "account": self.hh.accounts[r.account_id].nickname
+                     if r.account_id in self.hh.accounts else r.account_id,
+                     "purpose": r.purpose.value, "funded": r.funded.to_json(),
+                     "target": r.target.to_json(),
+                     "remaining": r.remaining.to_json()}
+                    for r in self.hh.reserves.values() if self._in_scope(r.account_id)]
+        return {
+            "as_of": self.hh.as_of.isoformat(),
+            "household": self.hh.name,
+            "total_cash": self.hh.total_cash().to_json(),
+            "protected_reserves": protected.to_json(),
+            "spendable_now": spendable.to_json(),
+            "total_debt": self.hh.total_debt().to_json(),
+            "estimated_assets": self.hh.estimated_assets().to_json(),
+            "net_worth": self.hh.net_worth().to_json(),
+            "by_type": {k: v.to_json() for k, v in by_type.items()},
+            "accounts": rows,
+            "reserves": reserves,
+            "notes": [
+                "Spendable is cash less protected reserves. It excludes investments, "
+                "retirement holdings and credit limits.",
+                "Estimated assets such as property are included in net worth but "
+                "labelled separately; they are never spendable and never verified "
+                "balances.",
+                "Net worth counts contributions and transfers as movements, never as "
+                "investment performance.",
+            ],
+        }
+
+    def get_paycheck_plan(self, year: Optional[int] = None,
+                          month: Optional[int] = None) -> dict:
+        y = year or self.hh.as_of.year
+        m = month or self.hh.as_of.month
+        eng = AllocationEngine(self.hh)
+        plan, runs = eng.allocate_month(y, m)
+        return {"month": f"{y}-{m:02d}", "plan": plan.to_json(),
+                "paychecks": [r.to_json() for r in runs],
+                "rule": ("A deadline that falls before the next paycheck is funded "
+                         "from this one. An even split across paychecks is rejected "
+                         "when it would leave a due date unfunded.")}
+
+    def get_spending_allowance(self, days: int = 14,
+                               account_id: Optional[str] = None) -> dict:
+        acct_id = account_id or (self.hh.checking[0].id if self.hh.checking else None)
+        if not acct_id or not self._in_scope(acct_id):
+            return {"error": "no checking account in scope"}
+        led = LedgerEngine(self.hh)
+        return led.spending_allowance(acct_id, days).to_json()
+
+    def get_cash_forecast(self, account_id: Optional[str] = None,
+                          days: int = 45) -> dict:
+        acct_id = account_id or (self.hh.checking[0].id if self.hh.checking else None)
+        if not acct_id or not self._in_scope(acct_id):
+            return {"error": "no account in scope"}
+        led = LedgerEngine(self.hh)
+        fc = led.forecast(acct_id, days=days)
+        out = fc.to_json(include_days=False)
+        out["daily"] = [{"date": d.date.isoformat(), "closing": str(d.closing.round().amount)}
+                        for d in fc.days]
+        return out
+
+    def get_upcoming_obligations(self, days: int = 30) -> dict:
+        start = self.hh.as_of
+        end = start + timedelta(days=days)
+        rows = []
+        for b in self.hh.bills.values():
+            occ = b.schedule.occurrences(start, end) if b.schedule else \
+                ([b.due_date] if start <= b.due_date <= end else [])
+            for d in occ:
+                rows.append({"name": b.name, "amount": b.amount.to_json(),
+                             "due_date": d.isoformat(), "required": b.required,
+                             "category": b.category,
+                             "funding_account": self.hh.accounts[b.funding_account_id].nickname
+                             if b.funding_account_id in self.hh.accounts else "",
+                             "execution_owner": b.execution_owner.value,
+                             "amount_confirmed": b.amount_confirmed,
+                             "days_away": (d - start).days})
+        rows.sort(key=lambda r: r["due_date"])
+        total = msum([Money(D(r["amount"]["amount"]), self.cur) for r in rows], self.cur)
+        return {"window_days": days, "total_due": total.to_json(),
+                "count": len(rows), "obligations": rows}
+
+    # ---- debt ---------------------------------------------------------
+    def _household_debts(self) -> list[DebtSnapshot]:
+        return [DebtSnapshot.from_liability(l) for l in self.hh.liabilities.values()
+                if l.balance.is_positive]
+
+    def compare_debt_strategies(self, extra_payment: Optional[float] = None,
+                                use_worked_example: bool = False) -> dict:
+        if use_worked_example:
+            from ..seed.demo import SECTION8_BUDGET, section8_debts
+            debts, budget = section8_debts(), SECTION8_BUDGET
+            source = "specification section 8 worked example"
+        else:
+            debts = self._household_debts()
+            if not debts:
+                return {"error": "no debts on file"}
+            required = msum([d.minimum for d in debts], self.cur)
+            extra = Money(D(str(extra_payment)), self.cur) if extra_payment \
+                else Money(D("500"), self.cur)
+            budget = required + extra
+            source = "your accounts"
+        cmp_ = compare_strategies(debts, budget)
+        out = cmp_.to_json()
+        out["source"] = source
+        out["debts"] = [{"name": d.name, "balance": d.balance.to_json(),
+                         "apr": str(d.apr), "minimum": d.minimum.to_json()}
+                        for d in debts]
+        return out
+
+    def what_if_extra_payment(self, amount: float) -> dict:
+        debts = self._household_debts()
+        if not debts:
+            return {"error": "no debts on file"}
+        required = msum([d.minimum for d in debts], self.cur)
+        base = compare_strategies(debts, required, [Strategy.HIGHEST_RATE])
+        with_extra = compare_strategies(
+            debts, required + Money(D(str(amount)), self.cur), [Strategy.HIGHEST_RATE])
+        b, w = base.results[0], with_extra.results[0]
+        led = LedgerEngine(self.hh)
+        allowance = (led.spending_allowance(self.hh.checking[0].id, 30)
+                     if self.hh.checking else None)
+        return {
+            "extra_per_month": Money(D(str(amount)), self.cur).to_json(),
+            "without_extra": {"months": b.months_to_clear,
+                              "total_interest": b.total_interest.to_json()},
+            "with_extra": {"months": w.months_to_clear,
+                           "total_interest": w.total_interest.to_json()},
+            "months_saved": b.months_to_clear - w.months_to_clear,
+            "interest_saved": (b.total_interest - w.total_interest).to_json(),
+            "target_order": [p.name for p in w.payoffs],
+            "cash_floor_effect": (allowance.to_json() if allowance else None),
+            "caveat": ("Modelled savings, not realised savings. Extra principal does "
+                       "not reduce the next required installment unless the servicer "
+                       "confirms a change."),
+        }
+
+    def get_mortgage_scenarios(self, lump_sum: Optional[float] = None,
+                               extra_monthly: Optional[float] = None) -> dict:
+        mort = next((l for l in self.hh.liabilities.values()
+                     if l.type == AccountType.MORTGAGE), None)
+        if mort is None:
+            return {"error": "no mortgage on file"}
+        cash = self.hh.total_cash()
+        scen = mortgage_scenarios(
+            mort.balance, mort.apr, mort.remaining_term_months or 240,
+            mort.minimum_payment,
+            Money(D(str(lump_sum)), self.cur) if lump_sum else None,
+            Money(D(str(extra_monthly)), self.cur) if extra_monthly else None,
+            cash, Money(D("250"), self.cur))
+        return {"mortgage": {"balance": mort.balance.to_json(), "apr": str(mort.apr),
+                             "principal_and_interest": mort.minimum_payment.to_json(),
+                             "escrow": mort.escrow.to_json()},
+                "scenarios": [s.to_json() for s in scen],
+                "note": ("Escrow, taxes and insurance are shown separately and are "
+                         "not affected by any of these choices. A recast requires "
+                         "servicer confirmation of eligibility, fee and effective date.")}
+
+    def compare_biweekly_mortgage(self, program_fee_per_year: Optional[float] = None
+                                  ) -> dict:
+        mort = next((l for l in self.hh.liabilities.values()
+                     if l.type == AccountType.MORTGAGE), None)
+        if mort is None:
+            return {"error": "no mortgage on file"}
+        return biweekly_comparison(
+            mort.balance, mort.apr, mort.minimum_payment,
+            Money(D(str(program_fee_per_year)), self.cur) if program_fee_per_year else None)
+
+    def plan_promotional_payoff(self, balance: float, paychecks_remaining: int) -> dict:
+        return promo_payoff_reserve(Money(D(str(balance)), self.cur),
+                                    paychecks_remaining)
+
+    # ---- cards ---------------------------------------------------------
+    def choose_card(self, amount: float, category: str = "base", merchant: str = "",
+                    channel: str = "in_person", foreign: bool = False,
+                    mcc_certain: bool = True,
+                    processing_fee_rate: float = 0.0) -> dict:
+        cards = [c for c in self.hh.cards.values() if self._in_scope(c.account_id)]
+        if not cards:
+            return {"error": "no cards on file"}
+        amt = Money(D(str(amount)), self.cur)
+        led = LedgerEngine(self.hh)
+        feasible = True
+        if self.hh.checking:
+            allowance = led.spending_allowance(self.hh.checking[0].id, 30)
+            feasible = allowance.amount >= amt
+        p = Purchase(amount=amt, merchant=merchant, category=category,
+                     channel=Channel(channel), foreign=foreign,
+                     mcc_certain=mcc_certain,
+                     processing_fee_rate=D(str(processing_fee_rate)),
+                     date=self.hh.as_of)
+        r = rank_cards(cards, p, Alternative(reward=Money.zero(self.cur),
+                                             fee=Money.zero(self.cur),
+                                             discount_kept=Money.zero(self.cur)),
+                       repayment_feasible=feasible)
+        out = r.to_json()
+        out["repayment_feasible"] = feasible
+        if not feasible:
+            out["repayment_note"] = (
+                "A card purchase immediately consumes budget and creates a future "
+                "card-payment commitment. Your funded spending allowance does not "
+                "currently cover this amount, so no card is recommended.")
+        return out
+
+    def compare_card_vs_bank_for_bill(self, amount: float, card_rate: float = 0.02,
+                                      processing_fee_rate: float = 0.0295,
+                                      lost_autopay_discount: float = 0.0) -> dict:
+        return bill_payment_comparison(
+            Money(D(str(amount)), self.cur), D(str(card_rate)),
+            D(str(processing_fee_rate)), Money.zero(self.cur),
+            Money(D(str(lost_autopay_discount)), self.cur))
+
+    def compare_booking_channels(self, direct_price: float, portal_price: float,
+                                 direct_rate: float = 0.02,
+                                 portal_rate: float = 0.05) -> dict:
+        return compare_channels(Money(D(str(direct_price)), self.cur), D(str(direct_rate)),
+                                Money(D(str(portal_price)), self.cur), D(str(portal_rate)))
+
+    def check_utilization_timing(self, card_id: Optional[str] = None,
+                                 payment: Optional[float] = None) -> dict:
+        cards = [c for c in self.hh.cards.values() if self._in_scope(c.account_id)]
+        card = self.hh.cards.get(card_id) if card_id else (cards[0] if cards else None)
+        if card is None:
+            return {"error": "no card on file"}
+        pay = Money(D(str(payment)), self.cur) if payment else card.current_balance
+        return utilization_timing(card, pay, self.hh.as_of)
+
+    # ---- liquidity -------------------------------------------------------
+    def get_buffer(self, account_id: Optional[str] = None) -> dict:
+        acct_id = account_id or (self.hh.checking[0].id if self.hh.checking else None)
+        if not acct_id or not self._in_scope(acct_id):
+            return {"error": "no account in scope"}
+        return BufferEngine(self.hh).for_account(acct_id).to_json()
+
+    def assess_sweep_move(self, amount: float, hold_days: int = 30,
+                          destination_apy: Optional[float] = None,
+                          transfer_fee: float = 0.0) -> dict:
+        chk = self.hh.checking[0] if self.hh.checking else None
+        sav = next((a for a in self.hh.accounts.values()
+                    if a.type == AccountType.SAVINGS and self._in_scope(a.id)), None)
+        if not chk or not sav:
+            return {"error": "need a checking and a savings account in scope"}
+        dest_apy = D(str(destination_apy)) if destination_apy else (sav.apy or D("0"))
+        buf = BufferEngine(self.hh).for_account(chk.id)
+        amt = Money(D(str(amount)), self.cur)
+        result = assess_sweep(amt, chk.apy or D("0"), dest_apy, hold_days,
+                              self.tax.combined_marginal,
+                              Money(D(str(transfer_fee)), self.cur),
+                              destination=sav.nickname).to_json()
+        result["sweepable_ceiling"] = buf.sweepable.to_json()
+        result["exceeds_sweepable"] = amt > buf.sweepable
+        if result["exceeds_sweepable"]:
+            result["blocker"] = (
+                f"Only {buf.sweepable} is sweepable from {chk.nickname} once dated "
+                "obligations, your floor and the uncertainty allowance are held back.")
+        return result
+
+    def get_liquidity_tiers(self) -> dict:
+        rows = [r for r in classify_liquidity(self.hh)
+                if self._in_scope(r["account_id"])]
+        near = msum([Money(D(r["available"]["amount"]), self.cur) for r in rows
+                     if r["counts_as_near_term_cash"]], self.cur)
+        return {"tiers": rows, "near_term_cash": near.to_json(),
+                "note": ("A money market deposit account and a money market fund are "
+                         "different products. Funds can lose value and are not "
+                         "insured deposits.")}
+
+    def compare_payment_timing(self, amount: float, due_date: str,
+                               debt_apr: float = 0.0, cash_apy: Optional[float] = None,
+                               accrues_daily: bool = True) -> dict:
+        sav = next((a for a in self.hh.accounts.values()
+                    if a.type == AccountType.SAVINGS), None)
+        apy = D(str(cash_apy)) if cash_apy is not None else (sav.apy if sav else D("0"))
+        d = date.fromisoformat(due_date)
+        return compare_timing("Payment", Money(D(str(amount)), self.cur), d,
+                              self.hh.as_of, apy, D(str(debt_apr)),
+                              self.tax.combined_marginal,
+                              accrues_daily=accrues_daily).to_json()
+
+    # ---- tax ---------------------------------------------------------------
+    def compare_savings_vs_debt(self, amount: float, horizon_days: int = 365) -> dict:
+        options = []
+        for l in self.hh.liabilities.values():
+            if not l.balance.is_positive:
+                continue
+            options.append((l.name, l.apr, l.tax_deductible_interest))
+        if not options:
+            return {"error": "no eligible debt on file"}
+        sav = next((a for a in self.hh.accounts.values()
+                    if a.type == AccountType.SAVINGS), None)
+        apy = sav.apy if sav and sav.apy else D("0.04")
+        cmp_ = compare_savings_vs_debt(Money(D(str(amount)), self.cur), apy,
+                                       options, self.tax, horizon_days)
+        return cmp_.to_json()
+
+    def check_interest_deduction(self, loan_type: str) -> dict:
+        return interest_deduction_check(loan_type, self.tax)
+
+    # ---- coverage -----------------------------------------------------------
+    def get_deposit_coverage(self) -> dict:
+        from ..seed.demo import SWEEP_BANK_NAMES
+        kinds = {"cu_harbor": "credit_union"}
+        rep = build_coverage(self.hh, self.hh.as_of, institution_kind=kinds,
+                             institution_names=SWEEP_BANK_NAMES)
+        out = rep.to_json()
+        for b in out["buckets"]:
+            ent = self.hh.entities.get(b["owner"])
+            if ent:
+                b["owner"] = ent.name
+        return out
+
+    def plan_coverage_remedy(self, source_institution: str,
+                             destination_institution: Optional[str] = None) -> dict:
+        from ..seed.demo import SWEEP_BANK_NAMES
+        rep = build_coverage(self.hh, self.hh.as_of,
+                             institution_kind={"cu_harbor": "credit_union"},
+                             institution_names=SWEEP_BANK_NAMES)
+        dest = destination_institution
+        if not dest:
+            others = [b for b in rep.buckets if b.institution_id != source_institution]
+            dest = others[0].institution_id if others else ""
+        dest_bucket = next((b for b in rep.buckets if b.institution_id == dest), None)
+        return coverage_remedy(rep, source_institution, dest,
+                               dest_bucket.total if dest_bucket else Money.zero(self.cur))
+
+    def stress_collateral_line(self, collateral_value: float, advance_rate: float,
+                               drawn: float, decline: float = 0.30,
+                               reduced_advance_rate: Optional[float] = None) -> dict:
+        return stress_collateral(
+            Money(D(str(collateral_value)), self.cur), D(str(advance_rate)),
+            Money(D(str(drawn)), self.cur), [D(str(decline))],
+            [D(str(reduced_advance_rate))] if reduced_advance_rate else [])
+
+    # ---- automation ---------------------------------------------------------
+    def get_automation_status(self) -> dict:
+        rows = []
+        for p in self.hh.policies_sorted():
+            m = p.mandate
+            rows.append({
+                "id": p.id, "name": p.name, "purpose": p.purpose.value,
+                "method": p.method.value,
+                "amount": (p.monthly_target or p.amount).to_json(),
+                "destination": self.hh.accounts[p.destination_account_id].nickname
+                if p.destination_account_id in self.hh.accounts else p.destination_account_id,
+                "priority": p.priority, "paused": p.paused,
+                "authorization": m.mode.value if m else "none",
+                "authorized": bool(m and m.active),
+                "per_run_cap": m.per_run_cap.to_json() if m and m.per_run_cap else None,
+                "notice_days": m.notice_days if m else None,
+                "jurisdiction": m.jurisdiction if m else None,
+            })
+        groups = []
+        if self.execution:
+            groups = [g.summary() for g in self.execution.groups.values()]
+        return {"policies": rows, "count": len(rows),
+                "globally_paused": bool(self.execution and self.execution.paused),
+                "transfer_groups": groups,
+                "control": ("You can pause any single rule, skip its next occurrence, "
+                            "or pause all future runs. Pausing cannot recall a payment "
+                            "already submitted.")}
+
+    def explain_transfer_outcome(self, leg_id: Optional[str] = None) -> dict:
+        if not self.execution:
+            return {"error": "no execution engine attached"}
+        legs = [l for g in self.execution.groups.values() for l in g.legs]
+        target = next((l for l in legs if l.id == leg_id), None) if leg_id else None
+        if target is None:
+            problems = [l for l in legs if l.state.value in
+                        ("failed", "returned", "outcome_unknown", "canceled")]
+            target = problems[0] if problems else (legs[0] if legs else None)
+        if target is None:
+            return {"error": "no payment legs exist yet"}
+        return {
+            "leg": target.to_json(),
+            "state": target.state.value,
+            "actual_reason": target.failure_reason or "no failure recorded",
+            "affected_obligation": target.destination_label,
+            "amount": target.amount.to_json(),
+            "available_actions": _recovery_actions(target.state.value),
+            "note": ("Authorization, scheduling, processing, settlement, failure and "
+                     "unknown status are distinct states. A payment is only described "
+                     "as scheduled or sent when the payment service confirms it."),
+        }
+
+    def stress_income_loss(self, months: int = 1) -> dict:
+        monthly_income = msum([e.effective_amount for e in self.hh.income_events],
+                              self.cur)
+        required = msum([b.amount for b in self.hh.bills.values() if b.required],
+                        self.cur)
+        reserves = msum([r.funded for r in self.hh.reserves.values()
+                         if r.purpose.value == "emergency"], self.cur)
+        cash = self.hh.total_cash()
+        gap_per_month = (required - Money.zero(self.cur))
+        total_need = gap_per_month * months
+        runway_months = int((cash.amount / required.amount)) if required.is_positive else 0
+        unmet = (total_need - cash).clamp_min_zero()
+        return {
+            "scenario": f"no income for {months} month(s)",
+            "monthly_required_obligations": required.to_json(),
+            "total_required_over_period": total_need.to_json(),
+            "available_cash": cash.to_json(),
+            "emergency_reserve": reserves.to_json(),
+            "runway_months_at_required_only": runway_months,
+            "unmet": unmet.to_json(),
+            "changes_required": [
+                "Optional transfers pause: brokerage funding, extra principal and "
+                "discretionary spending.",
+                "Protected reserves are the funding source, and the replenishment "
+                "plan restarts when income resumes.",
+                "Extra debt payments stop; required minimums continue.",
+            ],
+            "note": ("This is a separate stress scenario. It does not change your "
+                     "saved plan or any authorized rule."),
+        }
+
+    def explain_product_boundary(self, topic: str = "") -> dict:
+        return {
+            "topic": topic,
+            "in_scope": [
+                "Showing your existing holdings and their values.",
+                "Comparing uses of cash you already have across accounts you already own.",
+                "Routing cash to an existing brokerage or contribution destination "
+                "you select, without changing what that platform buys.",
+                "Modelling a scenario you describe, clearly labelled as hypothetical.",
+            ],
+            "out_of_scope": [
+                "Recommending that you open a new account or product.",
+                "Selecting securities to buy, sell or rebalance.",
+                "Tax-loss harvesting, retirement conversions, or new leverage.",
+                "Determining tax or program eligibility.",
+            ],
+            "reason": ("Personalised recommendations use only accounts, cards, loans "
+                       "and memberships you already own and have explicitly included. "
+                       "A transfer to brokerage cash is not the same as buying a fund."),
+        }
+
+
+def _recovery_actions(state: str) -> list[str]:
+    return {
+        "failed": ["Correct the named blocker and resubmit.",
+                   "The obligation is still open and is shown as unfunded."],
+        "outcome_unknown": [
+            "Status recovery is running against the provider with the original "
+            "identity. No replacement payment will be created until it resolves.",
+            "A manual replacement is withheld while the original outcome is unresolved."],
+        "returned": ["Cash availability and dependent legs have been rebuilt from "
+                     "actual status.", "The affected obligation is reopened."],
+        "canceled": ["This run was cancelled before submission. Nothing was sent."],
+        "submitted": ["Already submitted. It cannot be stopped through this "
+                      "application; a recall must be raised with the provider and is "
+                      "not guaranteed."],
+        "processing": ["In flight with the provider. Cancellation is not available."],
+        "reconciled": ["Complete and matched to bank activity and creditor application."],
+    }.get(state, ["No action required."])

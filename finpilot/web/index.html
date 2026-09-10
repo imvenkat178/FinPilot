@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FinPilot</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#F4F5F2; --surface-1:#FCFCFB; --surface-2:#EDEFEA;
+  --text-primary:#12181A; --text-secondary:#54615F; --text-muted:#7E8A87;
+  --rule:#DBDFD8; --rule-strong:#BFC5BC;
+  --accent:#12545A; --accent-soft:#DCE9E8;
+  --good:#2E6B41; --warn:#8A5D07; --critical:#9B2C1B;
+  --good-soft:#DFEADF; --warn-soft:#F4E8CE; --critical-soft:#F4E0DB;
+  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a;
+  --series-4:#eda100; --series-5:#e87ba4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#101413; --surface-1:#1a1a19; --surface-2:#212826;
+    --text-primary:#EAEDE8; --text-secondary:#A6B0AD; --text-muted:#7A8582;
+    --rule:#2A3230; --rule-strong:#3D4744;
+    --accent:#63B7B9; --accent-soft:#14383A;
+    --good:#82BA8A; --warn:#D9A94E; --critical:#E38A76;
+    --good-soft:#1C2C20; --warn-soft:#33280F; --critical-soft:#3A211B;
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+    --series-4:#c98500; --series-5:#d55181;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#101413; --surface-1:#1a1a19; --surface-2:#212826;
+  --text-primary:#EAEDE8; --text-secondary:#A6B0AD; --text-muted:#7A8582;
+  --rule:#2A3230; --rule-strong:#3D4744;
+  --accent:#63B7B9; --accent-soft:#14383A;
+  --good:#82BA8A; --warn:#D9A94E; --critical:#E38A76;
+  --good-soft:#1C2C20; --warn-soft:#33280F; --critical-soft:#3A211B;
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+  --series-4:#c98500; --series-5:#d55181;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text-primary);
+  font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.num{font-variant-numeric:tabular-nums;
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+a{color:var(--accent)}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+header{background:var(--surface-1);border-bottom:1px solid var(--rule);
+  position:sticky;top:0;z-index:40}
+.hin{max-width:1240px;margin:0 auto;padding:12px 20px;display:flex;
+  align-items:center;gap:14px;flex-wrap:wrap}
+.brand{font-weight:600;letter-spacing:-.02em;font-size:17px}
+.brand span{color:var(--accent)}
+.meta{color:var(--text-muted);font-size:12.5px}
+.pill{font-size:11.5px;padding:3px 9px;border-radius:999px;white-space:nowrap;
+  background:var(--surface-2);color:var(--text-secondary)}
+.pill.on{background:var(--good-soft);color:var(--good)}
+.pill.off{background:var(--warn-soft);color:var(--warn)}
+.spacer{margin-left:auto}
+.ghost{background:transparent;border:1px solid var(--rule-strong);
+  color:var(--text-secondary);border-radius:6px;padding:5px 11px;font-size:13px}
+.ghost:hover{color:var(--text-primary);border-color:var(--text-secondary)}
+
+main{max-width:1240px;margin:0 auto;padding:22px 20px 70px}
+.grid{display:grid;gap:16px}
+.cols-2{grid-template-columns:repeat(auto-fit,minmax(400px,1fr))}
+.card{background:var(--surface-1);border:1px solid var(--rule);border-radius:10px;
+  padding:18px 20px}
+.card h2{font-size:15px;display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+.card .sub{color:var(--text-muted);font-size:12.5px;margin-bottom:14px}
+
+/* hero stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:10px;
+  overflow:hidden;margin-bottom:16px}
+.stat{background:var(--surface-1);padding:16px 18px}
+.stat .k{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--text-muted)}
+.stat .v{font-size:26px;font-weight:600;letter-spacing:-.02em;margin-top:6px}
+.stat .d{font-size:12px;color:var(--text-secondary);margin-top:4px}
+.stat.hero .v{color:var(--accent)}
+
+/* paycheck split */
+.pay{margin-bottom:18px}
+.payhead{display:flex;justify-content:space-between;align-items:baseline;
+  gap:12px;flex-wrap:wrap;margin-bottom:7px}
+.payhead .t{font-weight:600;font-size:14px}
+.payhead .r{color:var(--text-secondary);font-size:12.5px}
+.bar{display:flex;height:34px;border-radius:5px;overflow:hidden;
+  background:var(--surface-2);gap:2px}
+.seg{position:relative;display:flex;align-items:center;justify-content:center;
+  min-width:2px;transition:filter .12s}
+.seg:hover{filter:brightness(1.08)}
+.seg b{font-size:11.5px;color:#fff;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.45);
+  padding:0 6px;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:9px;font-size:12.5px;
+  color:var(--text-secondary)}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block;
+  margin-right:6px;vertical-align:-1px}
+
+/* allocation table */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-muted);font-weight:600;padding:8px 10px 8px 0;
+  border-bottom:1px solid var(--rule-strong)}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--rule);
+  color:var(--text-secondary);vertical-align:top}
+td.k{color:var(--text-primary)}
+td.r,th.r{text-align:right;padding-right:0}
+tr:last-child td{border-bottom:0}
+.tag{font-size:10.5px;padding:2px 6px;border-radius:3px;white-space:nowrap;
+  background:var(--surface-2);color:var(--text-secondary)}
+.tag.due{background:var(--critical-soft);color:var(--critical)}
+.tag.later{background:var(--surface-2);color:var(--text-muted)}
+.tag.prot{background:var(--accent-soft);color:var(--accent)}
+.reason{font-size:12px;color:var(--text-muted);margin-top:3px;max-width:52ch}
+.scroll{overflow-x:auto}
+.toggle{display:flex;gap:4px}
+.toggle button{background:transparent;border:1px solid var(--rule-strong);
+  color:var(--text-muted);border-radius:5px;padding:3px 9px;font-size:12px}
+.toggle button[aria-pressed=true]{background:var(--text-primary);
+  color:var(--surface-1);border-color:var(--text-primary)}
+[hidden]{display:none!important}
+
+/* chart */
+.chartwrap{position:relative}
+svg{display:block;width:100%;height:auto;overflow:visible}
+.tip{position:absolute;pointer-events:none;background:var(--surface-1);
+  border:1px solid var(--rule-strong);border-radius:6px;padding:7px 10px;
+  font-size:12.5px;box-shadow:0 4px 16px rgba(0,0,0,.14);white-space:nowrap;
+  z-index:5;color:var(--text-primary)}
+
+/* lists */
+.rows{display:flex;flex-direction:column}
+.row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;
+  border-bottom:1px solid var(--rule);align-items:flex-start}
+.row:last-child{border-bottom:0}
+.row .l{min-width:0}
+.row .n{font-weight:500;font-size:14px}
+.row .s{font-size:12px;color:var(--text-muted);margin-top:2px}
+.row .v{text-align:right;white-space:nowrap;font-size:14px}
+.row .v small{display:block;font-size:11.5px;color:var(--text-muted);
+  font-weight:400}
+
+/* assistant */
+.chat{display:flex;flex-direction:column;height:520px}
+.log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;
+  padding-right:4px}
+.msg{max-width:92%}
+.msg.u{align-self:flex-end;background:var(--accent-soft);color:var(--text-primary);
+  padding:8px 12px;border-radius:10px 10px 2px 10px;font-size:14px}
+.msg.a{align-self:flex-start}
+.msg.a .body{background:var(--surface-2);padding:10px 13px;border-radius:10px 10px 10px 2px;
+  font-size:14px;white-space:pre-wrap}
+.msg.a .foot{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center}
+.chip{font-size:10.5px;padding:2px 7px;border-radius:3px;background:var(--surface-2);
+  color:var(--text-muted)}
+.chip.state{background:var(--accent-soft);color:var(--accent)}
+.chip.ok{background:var(--good-soft);color:var(--good)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.ev{margin-top:6px;font-size:12px}
+.ev summary{cursor:pointer;color:var(--text-muted)}
+.ev pre{background:var(--surface-2);padding:9px;border-radius:6px;overflow:auto;
+  max-height:230px;font-size:11.5px;margin:6px 0 0;color:var(--text-secondary)}
+.sugg{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.sugg button{background:transparent;border:1px solid var(--rule-strong);
+  color:var(--text-secondary);border-radius:999px;padding:4px 11px;font-size:12.5px}
+.sugg button:hover{border-color:var(--accent);color:var(--accent)}
+.ask{display:flex;gap:8px;margin-top:10px}
+.ask input{flex:1;background:var(--bg);border:1px solid var(--rule-strong);
+  border-radius:7px;padding:9px 12px;font:inherit;font-size:14px;
+  color:var(--text-primary)}
+.ask button{background:var(--accent);color:var(--surface-1);border:0;
+  border-radius:7px;padding:9px 16px;font-weight:500}
+.ask button:disabled{opacity:.5;cursor:default}
+.note{font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.45}
+.empty{color:var(--text-muted);font-size:13.5px;padding:14px 0}
+@media (max-width:720px){ .chat{height:440px} .stat .v{font-size:22px} }
+</style>
+</head>
+<body data-palette="#2a78d6,#eb6834,#1baf7a,#eda100,#e87ba4">
+
+<header>
+  <div class="hin">
+    <div class="brand">Fin<span>Pilot</span></div>
+    <span class="meta" id="hhname">loading…</span>
+    <span class="pill" id="llmpill">model: checking…</span>
+    <div class="spacer"></div>
+    <button class="ghost" id="theme" type="button">Theme</button>
+    <button class="ghost" id="refresh" type="button">Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div class="stats" id="stats"></div>
+
+  <div class="grid cols-2">
+    <section class="card" style="grid-column:1/-1">
+      <h2>Where this month's income goes
+        <div class="toggle spacer" role="group" aria-label="View">
+          <button type="button" id="v-chart" aria-pressed="true">Chart</button>
+          <button type="button" id="v-table" aria-pressed="false">Table</button>
+        </div>
+      </h2>
+      <div class="sub" id="plansub"></div>
+      <div id="paybars"></div>
+      <div class="legend" id="paylegend"></div>
+      <div id="paytable" hidden class="scroll"></div>
+      <p class="note" id="planrule"></p>
+    </section>
+
+    <section class="card" style="grid-column:1/-1">
+      <h2>Projected checking balance</h2>
+      <div class="sub" id="fcsub"></div>
+      <div class="chartwrap" id="fcwrap"></div>
+    </section>
+
+    <section class="card">
+      <h2>Accounts by how fast you can reach the money</h2>
+      <div class="sub">Classified by verified accessibility, not by appearance.</div>
+      <div class="rows" id="liq"></div>
+    </section>
+
+    <section class="card">
+      <h2>Coming up</h2>
+      <div class="sub" id="billsub"></div>
+      <div class="rows" id="bills"></div>
+    </section>
+
+    <section class="card">
+      <h2>Repayment plans under one budget</h2>
+      <div class="sub" id="debtsub"></div>
+      <div class="scroll" id="debt"></div>
+      <p class="note" id="debtnote"></p>
+    </section>
+
+    <section class="card">
+      <h2>Deposit protection</h2>
+      <div class="sub" id="covsub"></div>
+      <div class="rows" id="cov"></div>
+      <p class="note" id="covnote"></p>
+    </section>
+
+    <section class="card">
+      <h2>Automated rules</h2>
+      <div class="sub" id="autosub"></div>
+      <div class="rows" id="auto"></div>
+    </section>
+
+    <section class="card">
+      <h2>Ask about your money</h2>
+      <div class="sub">Every figure comes from a calculation, never from the model.
+        Answers that add a number the calculators did not produce are rejected
+        automatically.</div>
+      <div class="chat">
+        <div class="log" id="log"></div>
+        <div class="sugg" id="sugg"></div>
+        <form class="ask" id="askform">
+          <input id="q" placeholder="How should I split my next paycheck?"
+                 autocomplete="off" aria-label="Ask a question">
+          <button type="submit" id="send">Ask</button>
+        </form>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const money = m => (m && m.display) ? m.display : "—";
+const val = m => m ? parseFloat(m.amount) : 0;
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* ---- purpose -> categorical slot, fixed order, never cycled ---- */
+const GROUPS = [
+  {key:"required",  label:"Required debt & bills", slot:1,
+   purposes:["required_debt","card_statement","bill"]},
+  {key:"reserves",  label:"Protected reserves",    slot:2,
+   purposes:["emergency_reserve","annual_reserve","tax_reserve","buffer"]},
+  {key:"spending",  label:"Everyday spending",     slot:3, purposes:["spending"]},
+  {key:"investing", label:"Investment cash",       slot:4, purposes:["investment_cash"]},
+  {key:"extra",     label:"Extra principal",       slot:5,
+   purposes:["extra_principal","goal"]},
+];
+const groupOf = p => (GROUPS.find(g => g.purposes.includes(p)) || GROUPS[4]);
+const slotColor = n => `var(--series-${n})`;
+
+let DATA = null;
+
+async function load(){
+  const r = await fetch("/api/dashboard");
+  DATA = await r.json();
+  renderAll();
+}
+
+function renderAll(){
+  const d = DATA;
+  $("#hhname").textContent = `${d.household} · as of ${d.as_of}`;
+  const llm = d.llm || {};
+  const pill = $("#llmpill");
+  pill.textContent = llm.reachable
+    ? `model: ${llm.model} @ ${llm.runtime||"local"}`
+    : "model: not connected — answers come from the calculators";
+  pill.className = "pill " + (llm.reachable ? "on" : "off");
+
+  renderStats(d);
+  renderPlan(d.plan);
+  renderForecast(d.forecast);
+  renderLiquidity(d.liquidity);
+  renderBills(d.bills);
+  renderDebt(d.debt);
+  renderCoverage(d.coverage);
+  renderAutomation(d.automation);
+}
+
+/* ---------------- hero stats ---------------- */
+function renderStats(d){
+  const o = d.overview, a = d.allowance, b = d.buffer, bills = d.bills;
+  const monthlyRequired = (bills.obligations||[])
+    .filter(x=>x.required).reduce((s,x)=>s+val(x.amount),0);
+  const cash = val(o.total_cash) - val(o.protected_reserves);
+  const runway = monthlyRequired > 0
+    ? Math.floor(cash / (monthlyRequired/30)) : 0;
+  const items = [
+    {k:"Days of runway", v:String(runway), d:"Committed obligations funded from "
+      +"unreserved cash at the current rate", hero:true},
+    {k:"Safe to spend",  v:money(a.amount),
+     d:`through ${a.through} · set by the low point, not the ending balance`},
+    {k:"Cash",           v:money(o.total_cash),
+     d:`${money(o.protected_reserves)} of it is reserved`},
+    {k:"Debt",           v:money(o.total_debt), d:"across every liability on file"},
+    {k:"Net worth",      v:money(o.net_worth),
+     d:`includes ${money(o.estimated_assets)} of estimated assets`},
+  ];
+  $("#stats").innerHTML = items.map(i=>`
+    <div class="stat${i.hero?" hero":""}">
+      <div class="k">${esc(i.k)}</div>
+      <div class="v num">${esc(i.v)}</div>
+      <div class="d">${esc(i.d)}</div>
+    </div>`).join("");
+}
+
+/* ---------------- paycheck split ---------------- */
+function renderPlan(plan){
+  const pays = plan.paychecks || [];
+  $("#plansub").textContent =
+    `${plan.month} · targets ${money(plan.plan.total_target)} against expected income of `
+    + `${money(plan.plan.expected_income)}`;
+  $("#planrule").textContent = plan.rule || "";
+
+  const used = new Set();
+  const bars = pays.map(p => {
+    const funded = (p.allocations||[]).filter(a => val(a.amount) > 0);
+    const total = funded.reduce((s,a)=>s+val(a.amount),0) || 1;
+    const byGroup = {};
+    funded.forEach(a=>{
+      const g = groupOf(a.purpose);
+      byGroup[g.key] = byGroup[g.key] || {g, amount:0, items:[]};
+      byGroup[g.key].amount += val(a.amount);
+      byGroup[g.key].items.push(a);
+    });
+    const segs = GROUPS.filter(g=>byGroup[g.key]).map(g=>byGroup[g.key]);
+    segs.forEach(s=>used.add(s.g.key));
+    const short = (p.shortfalls||[]).length;
+    return `
+      <div class="pay">
+        <div class="payhead">
+          <span class="t">Paycheck ${esc(p.pay_date)} — ${esc(money(p.available))} in</span>
+          <span class="r">${esc(money(p.allocated))} allocated${
+            short ? ` · <span style="color:var(--critical)">${short} shortfall</span>` : ""}</span>
+        </div>
+        <div class="bar">${segs.map(s=>{
+          const pct = (s.amount/total)*100;
+          const label = pct > 11 ? `<b>${s.g.label.split(" ")[0]} $${Math.round(s.amount).toLocaleString()}</b>` : "";
+          return `<div class="seg" style="width:${pct}%;background:${slotColor(s.g.slot)}"
+            title="${esc(s.g.label)}: $${s.amount.toFixed(2)} (${pct.toFixed(1)}%)">${label}</div>`;
+        }).join("")}</div>
+      </div>`;
+  }).join("");
+  $("#paybars").innerHTML = bars || `<p class="empty">No income events this month.</p>`;
+  $("#paylegend").innerHTML = GROUPS.filter(g=>used.has(g.key)).map(g=>
+    `<span><i style="background:${slotColor(g.slot)}"></i>${esc(g.label)}</span>`).join("");
+
+  // table view — also the relief for the light-mode contrast warning
+  const rows = [];
+  pays.forEach(p=>{
+    (p.allocations||[]).forEach(a=>{
+      const funded = val(a.amount) > 0;
+      const tag = a.urgency === "due_before_next_income"
+        ? `<span class="tag due">due before next pay</span>`
+        : a.status === "deferred" ? `<span class="tag later">next paycheck</span>`
+        : a.urgency === "protected_floor" ? `<span class="tag prot">protected</span>` : "";
+      rows.push(`<tr>
+        <td class="k">${esc(a.name)}${tag?" "+tag:""}
+          <div class="reason">${esc(a.reason)}</div></td>
+        <td>${esc(a.due_date||"—")}</td>
+        <td class="r num">${esc(p.pay_date.slice(8))}</td>
+        <td class="r num" style="color:${funded?"var(--text-primary)":"var(--text-muted)"}">
+          ${esc(money(a.amount))}</td>
+        <td class="r num">${esc(money(a.monthly_target))}</td>
+      </tr>`);
+    });
+  });
+  $("#paytable").innerHTML = `<table>
+    <thead><tr><th>Destination</th><th>Due</th><th class="r">Pay day</th>
+      <th class="r">Allocated</th><th class="r">Monthly target</th></tr></thead>
+    <tbody>${rows.join("")}</tbody></table>`;
+}
+
+$("#v-chart").onclick = () => setView(true);
+$("#v-table").onclick = () => setView(false);
+function setView(chart){
+  $("#v-chart").setAttribute("aria-pressed", String(chart));
+  $("#v-table").setAttribute("aria-pressed", String(!chart));
+  $("#paybars").hidden = !chart; $("#paylegend").hidden = !chart;
+  $("#paytable").hidden = chart;
+}
+
+/* ---------------- forecast line chart ---------------- */
+function renderForecast(fc){
+  const pts = (fc.daily||[]).map(d=>({d:d.date, v:parseFloat(d.closing)}));
+  if(!pts.length){ $("#fcwrap").innerHTML = `<p class="empty">No forecast.</p>`; return; }
+  const lp = fc.low_point || {};
+  $("#fcsub").textContent =
+    `${fc.account_name} · low point ${money(lp.balance)} on ${lp.date}`
+    + ((fc.negative_days||[]).length ? ` · goes negative on ${fc.negative_days[0]}`
+                                     : " · stays positive through the window");
+
+  const W=900, H=230, P={t:14,r:16,b:26,l:62};
+  const xs = i => P.l + (i/(pts.length-1))*(W-P.l-P.r);
+  const lo = Math.min(0, ...pts.map(p=>p.v)), hi = Math.max(...pts.map(p=>p.v));
+  const pad = (hi-lo)*0.12 || 100;
+  const y0 = lo-pad, y1 = hi+pad;
+  const ys = v => P.t + (1-(v-y0)/(y1-y0))*(H-P.t-P.b);
+  const ticks = [y0, y0+(y1-y0)/2, y1].map(v=>Math.round(v/100)*100);
+  const line = pts.map((p,i)=>`${i?"L":"M"}${xs(i).toFixed(1)},${ys(p.v).toFixed(1)}`).join("");
+  const area = `${line}L${xs(pts.length-1).toFixed(1)},${ys(y0).toFixed(1)}`
+             + `L${xs(0).toFixed(1)},${ys(y0).toFixed(1)}Z`;
+  const lowIdx = pts.reduce((b,p,i)=>p.v<pts[b].v?i:b,0);
+
+  $("#fcwrap").innerHTML = `
+  <svg viewBox="0 0 ${W} ${H}" role="img"
+       aria-label="Projected daily checking balance; low point ${money(lp.balance)} on ${lp.date}">
+    <defs><linearGradient id="fg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--series-1)" stop-opacity=".22"/>
+      <stop offset="100%" stop-color="var(--series-1)" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${ticks.map(t=>`<g>
+      <line x1="${P.l}" x2="${W-P.r}" y1="${ys(t)}" y2="${ys(t)}"
+            stroke="var(--rule)" stroke-width="1"/>
+      <text x="${P.l-10}" y="${ys(t)+4}" text-anchor="end" font-size="11"
+            fill="var(--text-muted)">$${t.toLocaleString()}</text></g>`).join("")}
+    ${y0<0?`<line x1="${P.l}" x2="${W-P.r}" y1="${ys(0)}" y2="${ys(0)}"
+       stroke="var(--critical)" stroke-width="1" stroke-dasharray="3 3"/>`:""}
+    <path d="${area}" fill="url(#fg)"/>
+    <path d="${line}" fill="none" stroke="var(--series-1)" stroke-width="2"
+          stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${xs(lowIdx)}" cy="${ys(pts[lowIdx].v)}" r="4.5"
+            fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2"/>
+    <text x="${xs(lowIdx)}" y="${ys(pts[lowIdx].v)-11}" text-anchor="middle"
+          font-size="11.5" font-weight="600" fill="var(--text-primary)">
+      low $${Math.round(pts[lowIdx].v).toLocaleString()}</text>
+    <text x="${P.l}" y="${H-6}" font-size="11" fill="var(--text-muted)">${pts[0].d}</text>
+    <text x="${W-P.r}" y="${H-6}" text-anchor="end" font-size="11"
+          fill="var(--text-muted)">${pts[pts.length-1].d}</text>
+    <line id="cross" x1="0" x2="0" y1="${P.t}" y2="${H-P.b}" stroke="var(--rule-strong)"
+          stroke-width="1" opacity="0"/>
+    <rect x="${P.l}" y="${P.t}" width="${W-P.l-P.r}" height="${H-P.t-P.b}"
+          fill="transparent" id="hit"/>
+  </svg><div class="tip" id="tip" style="display:none"></div>`;
+
+  const svg = $("#fcwrap svg"), tip = $("#tip"), cross = $("#cross");
+  $("#hit").addEventListener("pointermove", e=>{
+    const box = svg.getBoundingClientRect();
+    const px = (e.clientX-box.left)/box.width*W;
+    let i = Math.round((px-P.l)/((W-P.l-P.r)/(pts.length-1)));
+    i = Math.max(0, Math.min(pts.length-1, i));
+    cross.setAttribute("x1", xs(i)); cross.setAttribute("x2", xs(i));
+    cross.setAttribute("opacity", ".9");
+    tip.style.display="block";
+    tip.innerHTML = `<b>${pts[i].d}</b><br>$${pts[i].v.toLocaleString(undefined,
+      {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+    const wrapBox = $("#fcwrap").getBoundingClientRect();
+    tip.style.left = Math.min(wrapBox.width-150,
+      Math.max(0, (xs(i)/W)*wrapBox.width - 60)) + "px";
+    tip.style.top = ((ys(pts[i].v)/H)*wrapBox.height - 52) + "px";
+  });
+  $("#hit").addEventListener("pointerleave", ()=>{
+    tip.style.display="none"; cross.setAttribute("opacity","0"); });
+}
+
+/* ---------------- lists ---------------- */
+function renderLiquidity(l){
+  $("#liq").innerHTML = (l.tiers||[]).map(t=>`
+    <div class="row"><div class="l">
+      <div class="n">${esc(t.name)}</div>
+      <div class="s">${esc(t.treatment)}</div></div>
+      <div class="v num">${esc(money(t.available))}
+        <small>${esc(t.tier_label||t.tier)}</small></div></div>`).join("")
+    || `<p class="empty">No accounts.</p>`;
+}
+
+function renderBills(b){
+  $("#billsub").textContent =
+    `${b.count} obligations totalling ${money(b.total_due)} in ${b.window_days} days`;
+  $("#bills").innerHTML = (b.obligations||[]).slice(0,10).map(o=>`
+    <div class="row"><div class="l">
+      <div class="n">${esc(o.name)}</div>
+      <div class="s">${esc(o.due_date)} · in ${o.days_away} days · from
+        ${esc(o.funding_account)} · ${esc(o.execution_owner.replace(/_/g," "))}
+        ${o.amount_confirmed?"":" · amount estimated"}</div></div>
+      <div class="v num">${esc(money(o.amount))}</div></div>`).join("")
+    || `<p class="empty">Nothing due in this window.</p>`;
+}
+
+function renderDebt(d){
+  if(d.error){ $("#debt").innerHTML = `<p class="empty">${esc(d.error)}</p>`; return; }
+  $("#debtsub").textContent =
+    `Budget ${money(d.budget)} — ${money(d.required_total)} required, `
+    + `${money(d.extra)} extra`;
+  $("#debtnote").textContent = d.objective_note || "";
+  $("#debt").innerHTML = `<table>
+    <thead><tr><th>Plan</th><th>First payoff</th><th class="r">Clears in</th>
+      <th class="r">Total interest</th><th class="r">vs lowest cost</th></tr></thead>
+    <tbody>${(d.results||[]).map(r=>{
+      const prem = val(r.interest_premium_vs_lowest_cost);
+      return `<tr>
+        <td class="k">${esc(r.label)}</td>
+        <td>${r.first_payoff ? esc(r.first_payoff.debt)+" · month "+r.first_payoff.month : "—"}</td>
+        <td class="r num">${r.months_to_clear} mo</td>
+        <td class="r num">${esc(money(r.total_interest))}</td>
+        <td class="r num" style="color:${prem>0?"var(--warn)":"var(--good)"}">
+          ${prem>0?"+"+esc(money(r.interest_premium_vs_lowest_cost)):"benchmark"}</td>
+      </tr>`;}).join("")}</tbody></table>`;
+}
+
+function renderCoverage(c){
+  const un = val(c.total_uncovered);
+  $("#covsub").innerHTML = un > 0
+    ? `<span style="color:var(--critical)">${esc(money(c.total_uncovered))} estimated uncovered</span>`
+    : `All estimated deposits sit within their category limits`;
+  $("#cov").innerHTML = (c.buckets||[]).map(b=>{
+    const u = val(b.uncovered);
+    return `<div class="row"><div class="l">
+      <div class="n">${esc(b.institution_name)}</div>
+      <div class="s">${esc(b.category)} · ${esc(b.regime)} · limit ${esc(money(b.limit))}
+        ${val(b.via_sweep)>0?` · ${esc(money(b.via_sweep))} through a sweep program`:""}</div></div>
+      <div class="v num">${esc(money(b.total))}
+        <small style="color:${u>0?"var(--critical)":"var(--text-muted)"}">
+          ${u>0?esc(money(b.uncovered))+" uncovered":"fully covered"}</small></div></div>`;
+  }).join("") || `<p class="empty">No deposit accounts.</p>`;
+  $("#covnote").textContent = (c.caveats||[])[0] || "";
+}
+
+function renderAutomation(a){
+  const active = (a.policies||[]).filter(p=>!p.paused);
+  $("#autosub").textContent = `${active.length} active of ${a.policies.length}`
+    + (a.globally_paused ? " · all future runs are paused" : "");
+  $("#auto").innerHTML = active.map(p=>`
+    <div class="row"><div class="l">
+      <div class="n">${esc(p.name)}</div>
+      <div class="s">to ${esc(p.destination)} · ${esc(p.authorization)} authorization
+        ${p.per_run_cap?` · capped at ${esc(money(p.per_run_cap))} per run`:""}
+        ${p.authorized?"":" · not yet authorized"}</div></div>
+      <div class="v num">${val(p.amount)>0?esc(money(p.amount)):"—"}
+        <small>${val(p.amount)>0?"priority "+p.priority:"target already met"}</small>
+      </div></div>`).join("")
+    || `<p class="empty">No rules configured.</p>`;
+}
+
+/* ---------------- assistant ---------------- */
+async function suggestions(){
+  const r = await fetch("/api/ask/suggestions"); const d = await r.json();
+  $("#sugg").innerHTML = d.suggestions.map(s=>
+    `<button type="button">${esc(s)}</button>`).join("");
+  $("#sugg").querySelectorAll("button").forEach(b=>{
+    b.onclick = () => { $("#q").value = b.textContent; ask(); };
+  });
+}
+
+function bubble(cls, html){
+  const el = document.createElement("div");
+  el.className = "msg " + cls; el.innerHTML = html;
+  $("#log").appendChild(el); $("#log").scrollTop = $("#log").scrollHeight;
+  return el;
+}
+
+async function ask(){
+  const q = $("#q").value.trim(); if(!q) return;
+  $("#q").value = ""; $("#send").disabled = true;
+  bubble("u", esc(q));
+  const pending = bubble("a", `<div class="body">Working…</div>`);
+  try{
+    const r = await fetch("/api/ask", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({question:q})});
+    const d = await r.json();
+    const gOk = d.grounding && d.grounding.ok;
+    const chips = [
+      d.state !== "informational"
+        ? `<span class="chip state">${esc(d.state.replace(/_/g," "))}</span>` : "",
+      `<span class="chip">${esc(d.intent)}</span>`,
+      (d.tools_called||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join(""),
+      d.used_model
+        ? `<span class="chip ok">model wrote it · ${d.grounding.checked||0} figures verified</span>`
+        : `<span class="chip warn">${gOk===false?"model output rejected — ":""}calculator wording</span>`,
+      `<span class="chip">${d.latency_ms}ms</span>`,
+    ].join("");
+    pending.innerHTML =
+      `<div class="body">${esc(d.answer)}</div>
+       <div class="foot">${chips}</div>
+       <details class="ev"><summary>Show the calculation this came from</summary>
+         <pre>${esc(JSON.stringify(d.evidence, null, 2).slice(0, 9000))}</pre></details>`;
+  }catch(e){
+    pending.innerHTML = `<div class="body">The request failed: ${esc(e.message)}. `
+      + `Nothing was calculated or changed.</div>`;
+  }
+  $("#send").disabled = false; $("#q").focus();
+  $("#log").scrollTop = $("#log").scrollHeight;
+}
+
+$("#askform").addEventListener("submit", e => { e.preventDefault(); ask(); });
+$("#refresh").onclick = load;
+$("#theme").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try{ localStorage.setItem("finpilot-theme", next); }catch(e){}
+  if(DATA) renderForecast(DATA.forecast);
+};
+try{
+  const saved = localStorage.getItem("finpilot-theme");
+  if(saved) document.documentElement.setAttribute("data-theme", saved);
+}catch(e){}
+
+load(); suggestions();
+</script>
+</body>
+</html>

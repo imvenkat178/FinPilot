@@ -185,9 +185,19 @@ class LocalLLM:
         resp = self.chat([{"role": "system", "content": system},
                           {"role": "user", "content": user}], **kw)
         try:
-            return resp["choices"][0]["message"]["content"] or ""
+            msg = resp["choices"][0]["message"]
         except (KeyError, IndexError):
             return ""
+        content = msg.get("content") or ""
+        # A reasoning-tuned local model (DeepSeek-R1 distills, QwQ, some Llama
+        # fine-tunes) puts its scratch thinking in a separate field or in
+        # <think>...</think> tags ahead of the real answer. Neither guardrail
+        # nor grounding check should ever see the scratch content, so strip it
+        # here rather than downstream in every caller.
+        if not content and isinstance(msg.get("reasoning_content"), str):
+            content = ""  # reasoning-only response with no real answer yet
+        content = _THINK_TAG.sub("", content).strip()
+        return content
 
     def complete_json(self, system: str, user: str, *, retries: int = 2, **kw) -> Any:
         """Ask for JSON and extract it robustly. Small local models frequently
@@ -208,19 +218,37 @@ class LocalLLM:
 
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
+_THINK_TAG = re.compile(r"<think>.*?</think>", re.S | re.I)
+_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+
+def _try_parse(t: str) -> Any:
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+    # A small model very commonly leaves a trailing comma before a closing
+    # brace/bracket -- valid in plenty of languages, not in JSON. Repair and
+    # retry once rather than rejecting an otherwise-correct answer.
+    repaired = _TRAILING_COMMA.sub(r"\1", t)
+    if repaired != t:
+        try:
+            return json.loads(repaired)
+        except Exception:
+            pass
+    return None
 
 
 def extract_json(text: str) -> Any:
     if not text:
         return None
-    t = text.strip()
+    t = _THINK_TAG.sub("", text).strip()
     m = _FENCE.search(t)
     if m:
         t = m.group(1).strip()
-    try:
-        return json.loads(t)
-    except Exception:
-        pass
+    parsed = _try_parse(t)
+    if parsed is not None:
+        return parsed
     # first balanced object or array
     for opener, closer in (("{", "}"), ("[", "]")):
         start = t.find(opener)
@@ -246,8 +274,8 @@ def extract_json(text: str) -> Any:
             elif c == closer:
                 depth -= 1
                 if depth == 0:
-                    try:
-                        return json.loads(t[start:i + 1])
-                    except Exception:
-                        break
+                    parsed = _try_parse(t[start:i + 1])
+                    if parsed is not None:
+                        return parsed
+                    break
     return None

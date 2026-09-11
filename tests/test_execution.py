@@ -40,11 +40,16 @@ def standing(cap="2500"):
 
 def leg(hh, amount="500", dest="acc_savings", kind=LegKind.RESERVE_FUNDING,
         mandate=None, group_id="g1", **kw):
+    # Due today (the household's `as_of`), not some date after it -- a leg
+    # scheduled for the future is exactly what the "not due yet" preflight
+    # check now correctly refuses to execute early (see
+    # tests/test_reviewed_defects.py), so ordinary lifecycle tests need a
+    # leg that is actually due.
     return PaymentLeg(group_id=group_id, kind=kind,
                       source_account_id="acc_checking",
                       destination_account_id=dest, destination_label=dest,
                       amount=M(amount), purpose=PolicyPurpose.GOAL,
-                      scheduled_for=date(2026, 9, 15),
+                      scheduled_for=hh.as_of,
                       mandate=mandate or standing(), **kw)
 
 
@@ -137,7 +142,12 @@ def test_reservations_stop_two_legs_spending_the_same_dollar(env):
     """'Use concurrency control so two workers cannot spend the same
     uncommitted funds.'"""
     hh, _, eng = env
-    hh.accounts["acc_checking"].available = M(600)
+    # +1000 over the original bare $600: acc_checking carries a $1000
+    # protected operating-floor reserve (res_floor) that executable funds
+    # must now net out (see the "protected reserve" preflight check), so
+    # the executable headroom this test actually exercises is still $600
+    # -- just $1600 available minus that $1000 floor.
+    hh.accounts["acc_checking"].available = M(1600)
     a = leg(hh, amount="500", dest="acc_savings")
     b = leg(hh, amount="500", dest="acc_brokerage")
     eng.groups["g1"] = TransferGroup(id="g1", legs=[a, b])

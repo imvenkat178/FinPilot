@@ -576,18 +576,62 @@ class Mandate:
     revoked_at: Optional[datetime] = None
     amendments: list[dict] = field(default_factory=list)
 
+    # Cumulative usage against `period_cap`, tracked per calendar month of
+    # the payment's scheduled date (`period_key` is "YYYY-MM"). Previously
+    # `period_cap` was accepted on every mandate but never actually
+    # enforced anywhere -- only `per_run_cap` was checked -- which is how a
+    # one-time mandate with a $100 period cap could authorize two separate
+    # $100 payments.
+    used_this_period: Money = field(default_factory=lambda: Money.zero())
+    period_key: Optional[str] = None
+
     @property
     def active(self) -> bool:
         return self.authorized_at is not None and self.revoked_at is None
 
-    def authorizes(self, amount: Money) -> tuple[bool, str]:
+    def _period_usage(self, when: Optional[date]) -> Money:
+        key = f"{when.year:04d}-{when.month:02d}" if when else None
+        if key is not None and key == self.period_key:
+            return self.used_this_period
+        return Money.zero(self.used_this_period.currency)
+
+    def authorizes(self, amount: Money, when: Optional[date] = None) -> tuple[bool, str]:
         if not self.active:
             return False, "no active authorization"
         if self.mode == AuthorizationMode.EXPLORE:
             return False, "explore mode cannot move money"
         if self.per_run_cap and amount > self.per_run_cap:
             return False, f"amount exceeds per-run cap of {self.per_run_cap}"
+        if self.mode == AuthorizationMode.ONE_TIME and self.used_this_period.is_positive:
+            return False, ("a one-time mandate authorizes a single payment; it has "
+                           "already been used")
+        if self.period_cap:
+            already_used = self._period_usage(when)
+            if already_used + amount > self.period_cap:
+                return False, (f"amount would bring this period's total to "
+                               f"{already_used + amount}, over the period cap of "
+                               f"{self.period_cap}")
         return True, "authorized"
+
+    def record_use(self, amount: Money, when: Optional[date] = None) -> None:
+        """Call only once a payment has actually consumed this authorization
+        (at execution/submission), never merely at preflight preview -- a
+        preflight that is checked but never submitted must not consume the
+        mandate's cap."""
+        key = f"{when.year:04d}-{when.month:02d}" if when else None
+        if key != self.period_key:
+            self.used_this_period = Money.zero(amount.currency)
+            self.period_key = key
+        self.used_this_period = self.used_this_period + amount
+
+    def release_use(self, amount: Money, when: Optional[date] = None) -> None:
+        """Undo `record_use` for a payment that turned out never to have
+        gone out (a provider rejection, or status recovery confirming no
+        submission ever existed) -- mirrors how a reservation is released
+        for the same cases."""
+        key = f"{when.year:04d}-{when.month:02d}" if when else None
+        if key == self.period_key:
+            self.used_this_period = (self.used_this_period - amount).clamp_min_zero()
 
 
 @dataclass
@@ -680,42 +724,70 @@ class Household:
                                 AccountType.MONEY_MARKET_DEPOSIT,
                                 AccountType.CASH, AccountType.BROKERAGE_SWEEP)
 
-    def total_cash(self) -> Money:
+    def total_cash(self, account_ids: Optional[set[str]] = None) -> Money:
+        """`account_ids`, when given, restricts the total to that set of
+        accounts -- a caller holding only a partial permission scope must
+        pass its scope here rather than getting the whole household's cash
+        by calling this with no argument."""
         t = Money.zero(self.base_currency)
         for a in self.cash_accounts:
+            if account_ids is not None and a.id not in account_ids:
+                continue
             if a.included_in_planning and a.currency == self.base_currency:
                 t = t + a.available
         return t
 
-    def total_debt(self) -> Money:
+    def total_debt(self, account_ids: Optional[set[str]] = None) -> Money:
+        """`account_ids`, when given, restricts the total to liabilities
+        whose linked account is in that set -- see `total_cash` above."""
         t = Money.zero(self.base_currency)
         for lia in self.liabilities.values():
+            if account_ids is not None and lia.account_id not in account_ids:
+                continue
             if lia.balance.currency == self.base_currency:
                 t = t + lia.balance
         return t
 
-    def protected_reserves(self, account_id: str | None = None) -> Money:
+    def protected_reserves(self, account_id: str | None = None,
+                           account_ids: Optional[set[str]] = None) -> Money:
         """Money earmarked inside an account that the same dollar cannot also
-        fund elsewhere (PL06)."""
+        fund elsewhere (PL06). `account_id` narrows to one specific account's
+        reserves; `account_ids`, when given, restricts to a permission scope
+        (see `total_cash` above) -- the two can be combined but usually only
+        one is used at a time."""
         t = Money.zero(self.base_currency)
         for r in self.reserves.values():
-            if r.protected and (account_id is None or r.account_id == account_id):
-                t = t + r.funded
+            if not r.protected:
+                continue
+            if account_id is not None and r.account_id != account_id:
+                continue
+            if account_ids is not None and r.account_id not in account_ids:
+                continue
+            t = t + r.funded
         return t
 
-    def estimated_assets(self) -> Money:
+    def estimated_assets(self, account_ids: Optional[set[str]] = None) -> Money:
+        """`account_ids`, when given, restricts the total to that set of
+        accounts -- see `total_cash` above."""
         t = Money.zero(self.base_currency)
         for a in self.accounts.values():
+            if account_ids is not None and a.id not in account_ids:
+                continue
             if a.type == AccountType.ESTIMATED_ASSET:
                 t = t + a.current
         return t
 
-    def net_worth(self) -> Money:
+    def net_worth(self, account_ids: Optional[set[str]] = None) -> Money:
         """AC06. Contributions and transfers are not investment performance,
         and a credit limit is not an asset. Estimated assets are included but
-        reported separately, never as verified balances."""
+        reported separately, never as verified balances. `account_ids`, when
+        given, restricts both the asset side and the debt side to that set of
+        accounts -- see `total_cash` above; a permission-scoped caller must
+        pass its scope here rather than seeing the whole household's figure."""
         assets = Money.zero(self.base_currency)
         for a in self.accounts.values():
+            if account_ids is not None and a.id not in account_ids:
+                continue
             if a.type in (AccountType.CREDIT_CARD, AccountType.PERSONAL_LOAN,
                           AccountType.AUTO_LOAN, AccountType.STUDENT_LOAN,
                           AccountType.MORTGAGE, AccountType.SBLOC,
@@ -723,7 +795,7 @@ class Household:
                 continue
             if a.currency == self.base_currency:
                 assets = assets + a.current
-        return assets - self.total_debt()
+        return assets - self.total_debt(account_ids)
 
     def policies_sorted(self) -> list[RecurringPolicy]:
         return sorted(self.policies.values(), key=lambda p: (p.priority, p.name))

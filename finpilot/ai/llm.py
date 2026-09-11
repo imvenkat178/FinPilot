@@ -27,10 +27,15 @@ over numbers a calculator produced.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+import threading
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 import httpx
 
@@ -56,9 +61,18 @@ class LLMConfig:
     model: str = ""
     api_key: str = "not-needed"
     temperature: float = 0.1
-    max_tokens: int = 768
-    timeout: float = 120.0
+    max_tokens: int = 384
+    timeout: float = 12.0
     runtime: str = "unknown"
+    health_ttl: float = 15.0
+    failure_cooldown: float = 5.0
+
+    def __post_init__(self) -> None:
+        # Bound local-model work even when configuration comes from an env file.
+        self.timeout = _bounded(self.timeout, 12.0, 1.0, 120.0)
+        self.max_tokens = int(_bounded(self.max_tokens, 384, 1, 2048))
+        self.health_ttl = _bounded(self.health_ttl, 15.0, 0.0, 300.0)
+        self.failure_cooldown = _bounded(self.failure_cooldown, 5.0, 0.0, 60.0)
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -67,24 +81,34 @@ class LLMConfig:
             model=os.environ.get("FINPILOT_LLM_MODEL", ""),
             api_key=os.environ.get("FINPILOT_LLM_API_KEY", "not-needed"),
             temperature=float(os.environ.get("FINPILOT_LLM_TEMPERATURE", "0.1")),
-            max_tokens=int(os.environ.get("FINPILOT_LLM_MAX_TOKENS", "768")),
-            timeout=float(os.environ.get("FINPILOT_LLM_TIMEOUT", "120")),
+            max_tokens=int(os.environ.get("FINPILOT_LLM_MAX_TOKENS", "384")),
+            timeout=float(os.environ.get("FINPILOT_LLM_TIMEOUT", "12")),
+            health_ttl=float(os.environ.get("FINPILOT_LLM_HEALTH_TTL", "15")),
+            failure_cooldown=float(os.environ.get("FINPILOT_LLM_FAILURE_COOLDOWN", "5")),
         )
 
     def to_json(self) -> dict:
         return {"base_url": self.base_url, "model": self.model,
-                "runtime": self.runtime, "temperature": self.temperature}
+                "runtime": self.runtime, "temperature": self.temperature,
+                "max_tokens": self.max_tokens, "timeout": self.timeout}
 
 
-def probe(base_url: str, timeout: float = 2.0) -> Optional[list[str]]:
+def _bounded(value: float, default: float, minimum: float, maximum: float) -> float:
+    number = float(value)
+    return min(maximum, max(minimum, number)) if math.isfinite(number) else default
+
+
+def probe(base_url: str, timeout: float = 2.0, *, api_key: str = "not-needed",
+          client: Optional[httpx.Client] = None) -> Optional[list[str]]:
     """Return the model ids a runtime is serving, or None if unreachable."""
     try:
-        r = httpx.get(f"{base_url.rstrip('/')}/models", timeout=timeout,
-                      headers={"Authorization": "Bearer not-needed"})
+        get = client.get if client is not None else httpx.get
+        r = get(f"{base_url.rstrip('/')}/models", timeout=timeout,
+                headers={"Authorization": f"Bearer {api_key}"})
         if r.status_code != 200:
             return None
         data = r.json()
-        items = data.get("data", data if isinstance(data, list) else [])
+        items = data if isinstance(data, list) else data.get("data", [])
         ids = [m.get("id") for m in items if isinstance(m, dict) and m.get("id")]
         return ids or []
     except Exception:
@@ -95,7 +119,7 @@ def autodetect(prefer: str = "llama") -> Optional[LLMConfig]:
     """Find a running local model. Prefers an id containing `prefer`."""
     env = LLMConfig.from_env()
     if env.base_url:
-        ids = probe(env.base_url)
+        ids = probe(env.base_url, api_key=env.api_key)
         if ids is not None:
             env.runtime = "configured"
             if not env.model:
@@ -126,12 +150,29 @@ def _pick(ids: list[str], prefer: str) -> Optional[str]:
     return ids[0] if ids else None
 
 
+_AUTODETECT = object()
+
+
 class LocalLLM:
     """Thin OpenAI-compatible chat client with a JSON-extraction helper."""
 
-    def __init__(self, config: Optional[LLMConfig] = None):
-        self.config = config or autodetect() or LLMConfig()
+    def __init__(self, config: Optional[LLMConfig] | object = _AUTODETECT):
+        # An explicit None means detection was already attempted. This avoids
+        # probing twice in callers using LocalLLM(autodetect()).
+        if config is _AUTODETECT:
+            config = autodetect()
+        if config is not None and not isinstance(config, LLMConfig):
+            raise TypeError("config must be an LLMConfig or None")
+        self.config = config or LLMConfig()
         self._client: Optional[httpx.Client] = None
+        self._client_lock = threading.RLock()
+        self._state_lock = threading.Lock()
+        self._probe_lock = threading.Lock()
+        self._active_requests = 0
+        self._closed = False
+        self._health: Optional[dict] = None
+        self._health_checked = 0.0
+        self._retry_after = 0.0
 
     @property
     def available(self) -> bool:
@@ -139,31 +180,113 @@ class LocalLLM:
 
     @property
     def client(self) -> httpx.Client:
-        if self._client is None:
-            self._client = httpx.Client(timeout=self.config.timeout)
-        return self._client
+        with self._client_lock:
+            if self._closed:
+                raise LLMUnavailable("The local model client is closed.")
+            if self._client is None:
+                self._client = httpx.Client(timeout=self.config.timeout)
+            return self._client
 
-    def health(self) -> dict:
-        if not self.config.base_url:
-            return {"reachable": False, "reason": "no endpoint configured or detected",
-                    "hint": "set FINPILOT_LLM_BASE_URL, e.g. http://localhost:11434/v1"}
-        ids = probe(self.config.base_url, timeout=3.0)
-        return {"reachable": ids is not None, "base_url": self.config.base_url,
-                "runtime": self.config.runtime, "model": self.config.model,
-                "models_served": ids or []}
+    @contextmanager
+    def _connection(self):
+        with self._client_lock:
+            client = self.client
+            self._active_requests += 1
+        try:
+            yield client
+        finally:
+            closing = None
+            with self._client_lock:
+                self._active_requests -= 1
+                if self._closed and not self._active_requests:
+                    closing, self._client = self._client, None
+            if closing is not None:
+                closing.close()
+
+    def close(self) -> None:
+        """Stop accepting requests; finish existing calls before closing the pool."""
+        closing = None
+        with self._client_lock:
+            self._closed = True
+            if not self._active_requests:
+                closing, self._client = self._client, None
+        if closing is not None:
+            closing.close()
+
+    def status(self) -> dict:
+        """Return the latest observation without performing network I/O."""
+        with self._state_lock:
+            out = dict(self._health) if self._health is not None else {
+                "reachable": False, "health_state": "unknown",
+                "reason": "model health has not been checked",
+                "base_url": self.config.base_url, "model": self.config.model,
+                "runtime": self.config.runtime, "models_served": [],
+            }
+            out["models_served"] = list(out.get("models_served", []))
+            age = max(0, time.monotonic() - self._health_checked)
+            out["cache_age_seconds"] = round(age, 3) if self._health is not None else None
+            return out
+
+    def _record_health(self, result: dict) -> None:
+        with self._state_lock:
+            self._health = {**result,
+                            "health_state": "healthy" if result.get("reachable") else "unavailable",
+                            "checked_at": datetime.now(timezone.utc).isoformat()}
+            self._health_checked = time.monotonic()
+
+    def _health_fresh(self) -> bool:
+        with self._state_lock:
+            return (self._health is not None
+                    and time.monotonic() - self._health_checked < self.config.health_ttl)
+
+    def health(self, *, force: bool = False) -> dict:
+        """Cache reachability checks; concurrent refreshes share one probe."""
+        if not force and self._health_fresh():
+            return self.status()
+        if not self._probe_lock.acquire(blocking=False):
+            with self._probe_lock:
+                return self.status()
+        try:
+            if not force and self._health_fresh():
+                return self.status()
+            if not self.config.base_url:
+                self._record_health({"reachable": False,
+                    "reason": "no endpoint configured or detected",
+                    "hint": "set FINPILOT_LLM_BASE_URL, e.g. http://localhost:11434/v1"})
+            else:
+                try:
+                    with self._connection() as client:
+                        ids = probe(self.config.base_url, timeout=2.0,
+                                    api_key=self.config.api_key, client=client)
+                except LLMUnavailable:
+                    ids = None
+                self._record_health({"reachable": ids is not None,
+                    "base_url": self.config.base_url, "runtime": self.config.runtime,
+                    "model": self.config.model, "models_served": ids or []})
+            return self.status()
+        finally:
+            self._probe_lock.release()
 
     def chat(self, messages: list[dict], *, temperature: Optional[float] = None,
              max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
-             tools: Optional[list[dict]] = None) -> dict:
+             tools: Optional[list[dict]] = None, timeout: Optional[float] = None) -> dict:
         if not self.available:
             raise LLMUnavailable(
                 "No local model endpoint is reachable. Set FINPILOT_LLM_BASE_URL "
                 "and FINPILOT_LLM_MODEL, or start Ollama / llama.cpp / LM Studio.")
+        with self._state_lock:
+            if time.monotonic() < self._retry_after:
+                raise LLMUnavailable("The local model is temporarily unavailable; "
+                                     "calculator answers remain available.")
+        remaining = self.config.timeout if timeout is None else min(self.config.timeout, timeout)
+        if remaining <= 0:
+            raise LLMUnavailable("The local model response budget was exhausted.")
         payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": messages,
             "temperature": self.config.temperature if temperature is None else temperature,
-            "max_tokens": max_tokens or self.config.max_tokens,
+            "max_tokens": (min(self.config.max_tokens, max(1, int(max_tokens)))
+                           if max_tokens is not None else self.config.max_tokens),
             "stream": False,
         }
         if stop:
@@ -172,23 +295,47 @@ class LocalLLM:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         try:
-            r = self.client.post(f"{self.config.base_url}/chat/completions",
-                                 json=payload,
-                                 headers={"Authorization": f"Bearer {self.config.api_key}",
-                                          "Content-Type": "application/json"})
+            with self._connection() as client:
+                r = client.post(f"{self.config.base_url}/chat/completions",
+                                json=payload,
+                                timeout=httpx.Timeout(remaining, connect=min(2.0, remaining),
+                                                      pool=min(2.0, remaining)),
+                                headers={"Authorization": f"Bearer {self.config.api_key}",
+                                         "Content-Type": "application/json"})
             r.raise_for_status()
-            return r.json()
-        except httpx.HTTPError as e:
-            raise LLMUnavailable(f"local model call failed: {e}") from e
+            data = r.json()
+            if (not isinstance(data, dict)
+                    or not isinstance(data.get("choices"), list)
+                    or not data["choices"]
+                    or not isinstance(data["choices"][0], dict)
+                    or not isinstance(data["choices"][0].get("message"), dict)):
+                raise ValueError("invalid completion response")
+            with self._state_lock:
+                self._retry_after = 0.0
+            self._record_health({"reachable": True, "base_url": self.config.base_url,
+                "runtime": self.config.runtime, "model": self.config.model,
+                "models_served": [self.config.model], "observation": "chat completion"})
+            return data
+        except (httpx.HTTPError, ValueError) as e:
+            with self._state_lock:
+                self._retry_after = time.monotonic() + self.config.failure_cooldown
+            self._record_health({"reachable": False, "base_url": self.config.base_url,
+                "runtime": self.config.runtime, "model": self.config.model,
+                "reason": f"local model request failed ({type(e).__name__})"})
+            raise LLMUnavailable(f"local model call failed ({type(e).__name__})") from e
 
     def complete(self, system: str, user: str, **kw) -> str:
         resp = self.chat([{"role": "system", "content": system},
                           {"role": "user", "content": user}], **kw)
         try:
             msg = resp["choices"][0]["message"]
-        except (KeyError, IndexError):
+        except (KeyError, IndexError, TypeError):
+            return ""
+        if not isinstance(msg, dict):
             return ""
         content = msg.get("content") or ""
+        if not isinstance(content, str):
+            return ""
         # A reasoning-tuned local model (DeepSeek-R1 distills, QwQ, some Llama
         # fine-tunes) puts its scratch thinking in a separate field or in
         # <think>...</think> tags ahead of the real answer. Neither guardrail

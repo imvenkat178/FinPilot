@@ -8,3 +8,4 @@ venv/
 .env
 *.db
 .DS_Store
+.local/

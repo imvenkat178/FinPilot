@@ -130,18 +130,20 @@ class LedgerEngine:
         for b in self.hh.bills.values():
             if b.funding_account_id != account_id:
                 continue
-            dates = ([d for d in b.schedule.occurrences(start, end)]
-                     if b.schedule else
-                     ([b.due_date] if start <= b.due_date <= end else []))
+            dates = self.hh.bill_dates(b, start, end)
             for d in dates:
-                out.append(LedgerEntry(d, account_id, b.name, -b.amount,
+                remaining = self.hh.bill_occurrence(b, d).cash_remaining
+                if remaining.is_zero:
+                    continue
+                label = f"{b.name} (overdue {d.isoformat()})" if d < start else b.name
+                out.append(LedgerEntry(max(d, start), account_id, label, -remaining,
                                        "bill" if b.required else "optional_bill",
                                        confirmed=b.amount_confirmed))
 
         # pending transactions not yet reflected in available
         for tx in self.hh.transactions:
             if tx.account_id == account_id and tx.state.value == "pending" \
-                    and start <= tx.date <= end:
+                    and not tx.balance_already_reflected and start <= tx.date <= end:
                 out.append(LedgerEntry(tx.date, account_id,
                                        tx.description or tx.merchant,
                                        tx.amount, "pending", confirmed=False))

@@ -59,6 +59,7 @@ class AgentState(TypedDict, total=False):
     used_model: bool
     latency_ms: int
     error: Optional[str]
+    inference_deadline: float
 
 
 @dataclass
@@ -104,12 +105,12 @@ Write the answer for the user now."""
 class FinanceAgent:
     def __init__(self, registry: ToolRegistry, llm: Optional[LocalLLM] = None,
                  tool_choice: ToolChoice = ToolChoice.ROUTER,
-                 max_tool_calls: int = 3):
+                 max_tool_calls: int = 3, *, compile_graph: bool = True):
         self.tools = registry
         self.llm = llm or LocalLLM()
         self.tool_choice = tool_choice
         self.max_tool_calls = max_tool_calls
-        self._graph = self._build() if LANGGRAPH else None
+        self._graph = self._build() if LANGGRAPH and compile_graph else None
 
     # ------------------------------------------------------------------
     # nodes
@@ -197,18 +198,21 @@ class FinanceAgent:
             return {**s, "answer": reference, "draft": reference, "used_model": False,
                     "trace": trace}
 
-        payload = json.dumps(_slim(primary), indent=2, default=str)[:6000]
+        payload = json.dumps(_slim(primary), separators=(",", ":"), default=str)[:6000]
         user = COMPOSE_USER.format(question=s["question"], payload=payload,
                                    reference=reference)
         if s.get("untrusted_context"):
             user = fence_untrusted("retrieved document", s["untrusted_context"]) \
                 + "\n\n" + user
         try:
-            t0 = time.time()
-            draft = self.llm.complete(SYSTEM_PROMPT, user).strip()
+            t0 = time.monotonic()
+            draft = self.llm.complete(SYSTEM_PROMPT, user,
+                                      timeout=self._remaining_budget(s)).strip()
+            if not draft:
+                raise LLMUnavailable("The local model returned no answer.")
             trace.append({"node": "compose", "mode": "model",
                           "model": self.llm.config.model,
-                          "ms": int((time.time() - t0) * 1000),
+                          "ms": int((time.monotonic() - t0) * 1000),
                           "chars": len(draft)})
             return {**s, "draft": draft, "used_model": True, "trace": trace}
         except LLMUnavailable as e:
@@ -278,6 +282,12 @@ class FinanceAgent:
         choice = ToolChoice(s.get("tool_choice") or self.tool_choice)
         return choice == ToolChoice.MODEL and self.llm.available
 
+    def _remaining_budget(self, s: AgentState) -> float:
+        remaining = s.get("inference_deadline", time.monotonic() + self.llm.config.timeout) - time.monotonic()
+        if remaining <= 0:
+            raise LLMUnavailable("The local model response budget was exhausted.")
+        return remaining
+
     def _model_driven_tools(self, s: AgentState, trace: list) -> list[dict]:
         """Genuine tool calling for a capable local model."""
         messages = [{"role": "system", "content": SYSTEM_PROMPT},
@@ -285,7 +295,8 @@ class FinanceAgent:
         results: list[dict] = []
         for _ in range(self.max_tool_calls):
             try:
-                resp = self.llm.chat(messages, tools=self.tools.openai_schemas())
+                resp = self.llm.chat(messages, tools=self.tools.openai_schemas(),
+                                     timeout=self._remaining_budget(s))
             except LLMUnavailable as e:
                 trace.append({"node": "execute", "mode": "model", "error": str(e)})
                 return results
@@ -295,6 +306,8 @@ class FinanceAgent:
                 break
             messages.append(msg)
             for c in calls:
+                if len(results) >= self.max_tool_calls:
+                    break
                 fn = (c.get("function") or {})
                 name = fn.get("name", "")
                 try:
@@ -307,6 +320,8 @@ class FinanceAgent:
                               "arguments": args, "ok": not out.get("error")})
                 messages.append({"role": "tool", "tool_call_id": c.get("id", ""),
                                  "content": json.dumps(_slim(out), default=str)[:4000]})
+            if len(results) >= self.max_tool_calls:
+                break
         return results
 
     # ------------------------------------------------------------------
@@ -330,11 +345,12 @@ class FinanceAgent:
     # ------------------------------------------------------------------
     def ask(self, question: str, untrusted_context: str = "",
             tool_choice: Optional[ToolChoice] = None) -> AgentResult:
-        t0 = time.time()
+        t0 = time.monotonic()
         init: AgentState = {"question": question,
                             "untrusted_context": untrusted_context,
                             "tool_choice": (tool_choice or self.tool_choice).value,
-                            "trace": [], "tool_results": []}
+                            "trace": [], "tool_results": [],
+                            "inference_deadline": t0 + self.llm.config.timeout}
         if self._graph is not None:
             final = self._graph.invoke(init)
         else:                                        # pragma: no cover
@@ -357,7 +373,7 @@ class FinanceAgent:
             assumptions=(primary.get("assumptions") or primary.get("notes")
                          or primary.get("caveats") or []),
             confidence=primary.get("confidence", "exact"),
-            latency_ms=int((time.time() - t0) * 1000),
+            latency_ms=int((time.monotonic() - t0) * 1000),
             trace=final.get("trace", []))
 
 

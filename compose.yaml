@@ -1,0 +1,53 @@
+x-finpilot: &finpilot
+  image: finpilot:local
+  build: .
+  env_file:
+    - .env
+  environment:
+    FINPILOT_DATABASE_URL: ${FINPILOT_DATABASE_URL:?Set FINPILOT_DATABASE_URL in .env}
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  extra_hosts:
+    - host.docker.internal:host-gateway
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-finpilot}
+      POSTGRES_USER: ${POSTGRES_USER:-finpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a generated POSTGRES_PASSWORD in .env}
+    volumes:
+      - finpilot_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *finpilot
+    command: [python, -m, alembic, upgrade, head]
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    <<: *finpilot
+    ports:
+      - "${FINPILOT_BIND_ADDRESS:-127.0.0.1}:${FINPILOT_PORT:-8100}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  finpilot_postgres:

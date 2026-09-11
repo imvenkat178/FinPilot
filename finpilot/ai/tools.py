@@ -281,6 +281,9 @@ class ToolRegistry:
                   self.compare_payment_timing, intents=("when to pay", "timing", "early"))
 
         # ---- tax --------------------------------------------------------
+        self._add("get_tax_profile",
+                  "Read the saved tax profile, rates, and verification status without a scenario.",
+                  NO_ARGS, self.get_tax_profile, intents=("tax assumptions", "tax profile"))
         self._add("compare_savings_vs_debt",
                   "Net benefit comparison: keep the cash, or apply it to an "
                   "existing debt, over the same period after supported taxes and "
@@ -379,7 +382,9 @@ class ToolRegistry:
                   "-- it never sends money by itself; authorization and execution "
                   "are separate, explicit steps.",
                   {"type": "object", "properties":
-                   {"bill_id": {"type": "string"}}, "required": ["bill_id"]},
+                   {"bill_id": {"type": "string"},
+                    "occurrence_date": {"type": "string", "description": "Exact due date (YYYY-MM-DD), when selecting a recurrence"}},
+                   "required": ["bill_id"]},
                   self.pay_bill_once, consequential=True,
                   intents=("pay this bill now", "one-time payment", "pay it once",
                             "make a one time payment"))
@@ -504,10 +509,17 @@ class ToolRegistry:
         for b in self.hh.bills.values():
             if not self._in_scope(b.funding_account_id):
                 continue
-            occ = b.schedule.occurrences(start, end) if b.schedule else \
-                ([b.due_date] if start <= b.due_date <= end else [])
+            occ = self.hh.bill_dates(b, start, end)
             for d in occ:
-                rows.append({"name": b.name, "amount": b.amount.to_json(),
+                occurrence = self.hh.bill_occurrence(b, d)
+                if occurrence.remaining.is_zero:
+                    continue
+                rows.append({"id": b.id, "occurrence_id": occurrence.id,
+                             "name": b.name, "amount": occurrence.remaining.to_json(),
+                             "original_amount": occurrence.amount.to_json(),
+                             "paid": occurrence.paid.to_json(),
+                             "funded": occurrence.funded.to_json(),
+                             "awaiting_application": (occurrence.funded - occurrence.paid).clamp_min_zero().to_json(),
                              "due_date": d.isoformat(), "required": b.required,
                              "category": b.category,
                              "funding_account": self.hh.accounts[b.funding_account_id].nickname
@@ -536,7 +548,7 @@ class ToolRegistry:
             if not debts:
                 return {"error": "no debts on file"}
             required = msum([d.minimum for d in debts], self.cur)
-            extra = Money(D(str(extra_payment)), self.cur) if extra_payment \
+            extra = Money(D(str(extra_payment)), self.cur) if extra_payment is not None \
                 else Money(D("500"), self.cur)
             budget = required + extra
             source = "your accounts"
@@ -671,7 +683,7 @@ class ToolRegistry:
             card = cards[0] if cards else None
         if card is None:
             return {"error": "no card on file"}
-        pay = Money(D(str(payment)), self.cur) if payment else card.current_balance
+        pay = Money(D(str(payment)), self.cur) if payment is not None else card.current_balance
         return utilization_timing(card, pay, self.hh.as_of)
 
     # ---- liquidity -------------------------------------------------------
@@ -729,6 +741,11 @@ class ToolRegistry:
                               accrues_daily=accrues_daily).to_json()
 
     # ---- tax ---------------------------------------------------------------
+    def get_tax_profile(self) -> dict:
+        return {"tax_profile": self.tax.to_json(),
+                "confidence": "verified" if self.tax.verified else "approximate",
+                "assumptions": [self.tax.to_json()["label"]]}
+
     def compare_savings_vs_debt(self, amount: float, horizon_days: int = 365) -> dict:
         options = []
         for l in self.hh.liabilities.values():
@@ -867,26 +884,34 @@ class ToolRegistry:
         pol = self.hh.policies.get(policy_id)
         if pol is None or not self._in_scope(pol.destination_account_id):
             return {"error": f"unknown policy: {policy_id}"}
-        pol.skip_next = True
+        skipped_date = self.hh.skip_policy_occurrence(pol)
+        if skipped_date is None:
+            return {"error": "No future occurrence is scheduled for this policy."}
         return {
             "policy_id": policy_id, "name": pol.name, "skip_next": True,
+            "skipped_date": skipped_date.isoformat(),
             "note": ("Only the next occurrence of this rule is skipped; it "
                      "resumes normally starting with the one after that."),
         }
 
-    def pay_bill_once(self, bill_id: str) -> dict:
+    def pay_bill_once(self, bill_id: str, occurrence_date: Optional[str] = None) -> dict:
         bill = self.hh.bills.get(bill_id)
         if bill is None or not self._in_scope(bill.funding_account_id):
             return {"error": f"unknown bill: {bill_id}"}
         if not self.execution:
             return {"error": "no execution engine attached"}
-        grp = self.execution.build_group_from_bill(bill_id)
+        try:
+            selected_date = date.fromisoformat(str(occurrence_date)) if occurrence_date else None
+            grp = self.execution.build_group_from_bill(bill_id, occurrence_date=selected_date)
+        except ValueError as error:
+            return {"error": str(error)}
         leg = grp.legs[0]
         pf = self.execution.preflight(leg)
         return {
             "group_id": grp.id, "leg": leg.to_json(),
             "amount": leg.amount.to_json(), "bill": bill.name,
-            "due_date": bill.due_date.isoformat(),
+            "due_date": leg.scheduled_for.isoformat(),
+            "occurrence_id": leg.occurrence_id,
             "preflight": pf.to_json(),
             "note": ("This only builds and checks a one-time payment; nothing "
                      "has been sent. " +

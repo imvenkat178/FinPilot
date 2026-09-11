@@ -23,10 +23,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
+from functools import wraps
+from threading import RLock
 from typing import Callable, Optional
 
-from ..models import (Account, AuthorizationMode, Capability, Household,
-                      Mandate, PolicyPurpose, _id, now)
+from ..models import (Account, AccountType, AuthorizationMode, BillOwner, Capability, Confidence, Household,
+                      Mandate, PolicyPurpose, Transaction, TxKind, TxState, _id, now)
 from ..money import Money, msum
 
 
@@ -97,6 +99,25 @@ class AuditEvent:
 
 
 @dataclass
+class PaymentApplication:
+    """Observed balance changes plus clearly separated contractual estimates."""
+    principal_applied: Money = field(default_factory=lambda: Money.zero())
+    destination_current_delta: Money = field(default_factory=lambda: Money.zero())
+    destination_available_delta: Money = field(default_factory=lambda: Money.zero())
+    unapplied_to_principal: Money = field(default_factory=lambda: Money.zero())
+    expected_interest: Optional[Money] = None
+    expected_escrow: Optional[Money] = None
+    expected_mortgage_insurance: Optional[Money] = None
+    confidence: Confidence = Confidence.EXACT
+    explanation: str = ""
+
+    def to_json(self) -> dict:
+        return {name: value.to_json() if isinstance(value, Money) else
+                value.value if isinstance(value, Enum) else value
+                for name, value in vars(self).items()}
+
+
+@dataclass
 class PaymentLeg:
     id: str = field(default_factory=lambda: _id("leg"))
     group_id: str = ""
@@ -130,6 +151,12 @@ class PaymentLeg:
     # destination credited). A return before this point has nothing real to
     # reverse; see `apply_return`.
     settlement_applied: bool = False
+    occurrence_id: str = ""
+    funding_intent_id: str = ""
+    policy_occurrence_date: Optional[date] = None
+    settled_on: Optional[date] = None
+    occurrence_paid_applied: bool = False
+    application: Optional[PaymentApplication] = None
 
     def __post_init__(self):
         if not self.idempotency_key:
@@ -148,6 +175,12 @@ class PaymentLeg:
         # obligation: the group changes every time, the key changed with
         # it, and "a retry never creates a second payment" silently stopped
         # being true across rebuilds even though it still held within one.
+        if self.occurrence_id:
+            payload = json.dumps({"occurrence": self.occurrence_id,
+                                  "intent": self.funding_intent_id,
+                                  "amount": str(self.amount.amount),
+                                  "currency": self.amount.currency}, sort_keys=True)
+            return hashlib.sha256(payload.encode()).hexdigest()[:24]
         payload = json.dumps({
             "src": self.source_account_id,
             "dst": self.destination_account_id or self.destination_label,
@@ -195,6 +228,11 @@ class PaymentLeg:
             "liability_id": self.liability_id,
             "reserve_id": self.reserve_id,
             "settlement_applied": self.settlement_applied,
+            "occurrence_id": self.occurrence_id or None,
+            "funding_intent_id": self.funding_intent_id or None,
+            "policy_occurrence_date": self.policy_occurrence_date.isoformat() if self.policy_occurrence_date else None,
+            "settled_on": self.settled_on.isoformat() if self.settled_on else None,
+            "application": self.application.to_json() if self.application else None,
             "audit": [a.to_json() for a in self.audit],
         }
 
@@ -304,27 +342,44 @@ class PreflightResult:
         return {"ok": self.ok, "checks": self.checks, "blockers": self.blockers}
 
 
+def _serialized(method):
+    """Keep one household engine's state transitions and reservations atomic.
+
+    Public methods call one another, so this is deliberately reentrant. The
+    provider simulator is synchronous; an external provider should use a durable
+    dispatch/recovery workflow rather than hold this lock over network I/O.
+    """
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return guarded
+
+
 class ExecutionEngine:
-    # KNOWN GAP, deliberately not patched here: `groups` and `reservations`
-    # live only in this process's memory. The idempotency key and duplicate
-    # check above stop a *rebuild* from paying an obligation twice within
-    # one running process, but a restart forgets every group and every
-    # reservation that existed before it -- so a process restart between
-    # "settled" and "next planning pass" can still reopen the same window
-    # the reviewer found. Closing that requires durable, transactional
-    # storage for groups/reservations/legs, which is real infrastructure
-    # work (persistence, a real ledger, crash-safe writes), not a
-    # same-process bug fix -- it belongs with the persistent storage and
-    # transactional payment ledger called out for the next development
-    # step, not bolted on here as an in-memory workaround.
+    # The hosted Runtime commits the household, legs, reservations, and provider
+    # identity map together. Direct calculator/test use remains in-memory; the
+    # lock protects one engine instance and does not replace database isolation.
     def __init__(self, household: Household, provider: Optional[SimulatedProvider] = None):
+        self._lock = RLock()
         self.hh = household
         self.provider = provider or SimulatedProvider()
         self.groups: dict[str, TransferGroup] = {}
         self.reservations: dict[str, Money] = {}       # account_id -> reserved
         self.paused = False
 
+    def _funding_intent(self, occurrence_id: str, base: str) -> str:
+        # A confirmed return reopens the obligation but not the provider's old
+        # submission identity. A new explicit draft is a linked retry attempt;
+        # rebuilding that same draft still gets a stable idempotency identity.
+        prefix = base + ":attempt:"
+        returned = sum(1 for group in self.groups.values() for leg in group.legs
+                       if leg.occurrence_id == occurrence_id and leg.state == LegState.RETURNED
+                       and leg.funding_intent_id.startswith(prefix))
+        return prefix + str(returned)
+
     # -- construction ---------------------------------------------------
+    @_serialized
     def build_group_from_allocation(self, allocation, label: str = "") -> TransferGroup:
         """Turn a PaycheckAllocation into independently tracked legs."""
         from ..engine.allocator import AllocationStatus
@@ -333,6 +388,11 @@ class ExecutionEngine:
             if not a.amount.is_positive or a.policy_id == "floor":
                 continue
             policy = self.hh.policies.get(a.policy_id)
+            bill = self.hh.bill_for_policy(policy) if policy else None
+            due_date = a.due_date or allocation.pay_date
+            occurrence = self.hh.bill_occurrence(bill, due_date, persist=True) if bill else None
+            trigger_date = due_date if policy and policy.schedule else allocation.pay_date
+            occurrence_id = occurrence.id if occurrence else f"policy:{a.policy_id}:{trigger_date.isoformat()}"
             kind = {
                 PolicyPurpose.REQUIRED_DEBT: LegKind.BILL_PAYMENT,
                 PolicyPurpose.CARD_STATEMENT: LegKind.CARD_STATEMENT,
@@ -343,8 +403,8 @@ class ExecutionEngine:
             leg = PaymentLeg(
                 group_id=grp.id, kind=kind,
                 source_account_id=policy.source_account_id if policy else "",
-                destination_account_id=a.destination_account_id,
-                destination_label=a.name, amount=a.amount, purpose=a.purpose,
+                destination_account_id=(bill.payee_account_id or "") if bill else a.destination_account_id,
+                destination_label=bill.name if bill else a.name, amount=a.amount, purpose=a.purpose,
                 scheduled_for=a.due_date or allocation.pay_date,
                 entity_id=policy.entity_id if policy else None,
                 mandate=policy.mandate if policy else None,
@@ -352,12 +412,18 @@ class ExecutionEngine:
                                                   "protected_floor")),
                 principal_only=(a.purpose == PolicyPurpose.EXTRA_PRINCIPAL),
                 policy_id=a.policy_id, liability_id=a.liability_id,
-                reserve_id=a.reserve_id)
+                reserve_id=a.reserve_id,
+                occurrence_id=occurrence_id,
+                funding_intent_id=self._funding_intent(
+                    occurrence_id, f"policy:{a.policy_id}:{allocation.income_event_id}"),
+                policy_occurrence_date=trigger_date)
             grp.legs.append(leg)
         self.groups[grp.id] = grp
         return grp
 
-    def build_group_from_bill(self, bill_id: str, label: str = "") -> TransferGroup:
+    @_serialized
+    def build_group_from_bill(self, bill_id: str, label: str = "",
+                              occurrence_date: Optional[date] = None) -> TransferGroup:
         """A one-time payment (spec's Release-2 'one-time payments' capability,
         Bills-and-calendar screen): pay a specific bill now, independent of
         any paycheck allocation. Returns a draft leg -- building it never
@@ -367,8 +433,16 @@ class ExecutionEngine:
         if bill is None:
             raise KeyError(f"unknown bill: {bill_id}")
         policy = next((p for p in self.hh.policies.values()
-                      if bill.payee_account_id
-                      and p.destination_account_id == bill.payee_account_id), None)
+                       if self.hh.bill_for_policy(p) is bill), None)
+        due_date = occurrence_date or bill.due_date
+        if occurrence_date and bill.schedule and due_date not in bill.schedule.occurrences(due_date, due_date):
+            raise ValueError("The requested date is not a bill occurrence")
+        if occurrence_date and not bill.schedule and due_date != bill.due_date:
+            raise ValueError("The requested date is not this bill's due date")
+        occurrence = self.hh.bill_occurrence(bill, due_date, persist=True)
+        amount = occurrence.cash_remaining
+        if amount.is_zero:
+            amount = occurrence.amount  # Retain a reviewable draft; preflight refuses it.
         # A one-time bill payment can pay down a liability just as a
         # planned allocation can -- find it the same way a Liability is
         # ever found, by its linked account, since a one-time payment has
@@ -381,27 +455,96 @@ class ExecutionEngine:
             group_id=grp.id, kind=LegKind.BILL_PAYMENT,
             source_account_id=bill.funding_account_id,
             destination_account_id=bill.payee_account_id or "",
-            destination_label=bill.name, amount=bill.amount,
+            destination_label=bill.name, amount=amount,
             purpose=PolicyPurpose.BILL,
-            scheduled_for=bill.due_date,
+            scheduled_for=due_date,
             entity_id=policy.entity_id if policy else None,
             mandate=policy.mandate if policy else None,
             optional=False,
             policy_id=policy.id if policy else "",
-            liability_id=liability.id if liability else None)
+            liability_id=liability.id if liability else None,
+            occurrence_id=occurrence.id,
+            funding_intent_id=self._funding_intent(occurrence.id, f"manual:{occurrence.funded.amount}"),
+            policy_occurrence_date=due_date)
         grp.legs.append(leg)
         self.groups[grp.id] = grp
         return grp
 
+    def _simulation_allowed(self) -> bool:
+        return not isinstance(self.provider, SimulatedProvider) or self.hh.payment_sandbox
+
+    def _require_simulation_scope(self) -> None:
+        if not self._simulation_allowed():
+            raise ValueError("Simulated payments are available only in sample workspaces; real planning balances cannot be changed by the simulator.")
+
     # -- preflight ------------------------------------------------------
+    @_serialized
     def preflight(self, leg: PaymentLeg) -> PreflightResult:
         """Section 21: recheck immediately before submission."""
         checks: dict[str, bool] = {}
         blockers: list[str] = []
 
+        checks["simulation_workspace"] = self._simulation_allowed()
+        if not checks["simulation_workspace"]:
+            blockers.append("Simulated payments are available only in sample workspaces; real planning balances cannot be changed by the simulator.")
         checks["not_globally_paused"] = not self.paused
         if self.paused:
             blockers.append("All future automation is paused by the user.")
+
+        # A draft can outlive a user's pause/skip action. Recheck the live rule
+        # here; the policy state when the allocation was built is not authority
+        # to execute it later.
+        policy = self.hh.policies.get(leg.policy_id) if leg.policy_id else None
+        if leg.policy_id:
+            checks["policy_exists"] = policy is not None
+            if policy is None:
+                blockers.append("This payment's rule no longer exists; review the payment before rebuilding it.")
+        if policy:
+            if policy.bill_id:
+                bound_bill = self.hh.bills.get(policy.bill_id)
+                checks["policy_bill_binding"] = bool(
+                    bound_bill and bound_bill.funding_account_id == policy.source_account_id
+                    and (not bound_bill.payee_account_id
+                         or bound_bill.payee_account_id == policy.destination_account_id)
+                    and leg.occurrence_id.startswith(f"bill:{policy.bill_id}:"))
+                if not checks["policy_bill_binding"]:
+                    blockers.append("The rule's related bill, funding account or payee changed; update and reauthorize the rule.")
+            checks["policy_not_paused"] = not policy.paused
+            skipped = self.hh.policy_skipped_on(
+                policy, leg.policy_occurrence_date or leg.scheduled_for or self.hh.as_of)
+            # Legacy legs do not carry a trigger date. Conservatively honor a
+            # pending legacy skip until a fresh occurrence-aware leg is built.
+            if not leg.policy_occurrence_date and policy.skip_next and not policy.skipped_dates:
+                skipped = True
+            checks["policy_not_skipped"] = not skipped
+            checks["current_policy_authority"] = bool(leg.mandate and leg.mandate.id == policy.mandate.id)
+            if not checks["current_policy_authority"]:
+                blockers.append("This rule changed after the draft was built; review and rebuild it under the current authorization.")
+            if policy.paused:
+                blockers.append(f"Policy {policy.name} is paused.")
+            if skipped:
+                blockers.append(f"This occurrence of policy {policy.name} is skipped.")
+
+        checks["positive_amount"] = leg.amount.is_positive
+        if not leg.amount.is_positive:
+            blockers.append("A payment amount must be positive.")
+        occurrence = self.hh.bill_occurrences.get(leg.occurrence_id)
+        if occurrence:
+            bill = self.hh.bills.get(occurrence.bill_id)
+            checks["bill_source_matches"] = bool(bill and bill.funding_account_id == leg.source_account_id)
+            checks["bill_payee_matches"] = bool(bill and (bill.payee_account_id or "") == leg.destination_account_id)
+            if not checks["bill_source_matches"] or not checks["bill_payee_matches"]:
+                blockers.append("The bill's funding account or payee changed after this payment was drafted.")
+            checks["app_execution_owner"] = bool(bill and bill.execution_owner == BillOwner.APP)
+            if not checks["app_execution_owner"]:
+                blockers.append("This bill occurrence is assigned to another execution owner; review ownership before an app payment.")
+            in_flight = msum([other.amount for group in self.groups.values() for other in group.legs
+                             if other.id != leg.id and other.occurrence_id == occurrence.id
+                             and other.money_is_out and not other.settlement_applied], leg.amount.currency)
+            remaining = (occurrence.cash_remaining - in_flight).clamp_min_zero()
+            checks["occurrence_remaining"] = leg.amount <= remaining
+            if not checks["occurrence_remaining"]:
+                blockers.append(f"This dated bill has only {remaining} left after settled and in-flight payments.")
 
         # A leg scheduled for a future date must wait for that date, not run
         # the moment it happens to be built and authorized -- a plan built
@@ -504,6 +647,14 @@ class ExecutionEngine:
                     continue
                 if other.idempotency_key == leg.idempotency_key and other.money_is_out:
                     return other
+                if leg.occurrence_id and other.occurrence_id:
+                    if (leg.occurrence_id == other.occurrence_id
+                            and leg.funding_intent_id == other.funding_intent_id
+                            and other.money_is_out):
+                        return other
+                    # Remaining-amount preflight handles separate partial
+                    # funding intents against the same dated obligation.
+                    continue
                 # Fallback signature match for the case where the exact key
                 # differs (e.g. the amount was recalculated slightly between
                 # rebuilds) but this is plainly the same obligation. This
@@ -522,6 +673,7 @@ class ExecutionEngine:
         return None
 
     # -- execution ------------------------------------------------------
+    @_serialized
     def authorize(self, leg: PaymentLeg, mandate: Mandate) -> None:
         leg.mandate = mandate
         if leg.state == LegState.DRAFT:
@@ -529,6 +681,7 @@ class ExecutionEngine:
         leg.transition(LegState.AUTHORIZED,
                        f"authorized under {mandate.mode.value} mandate {mandate.id}")
 
+    @_serialized
     def execute(self, leg: PaymentLeg) -> PaymentLeg:
         if leg.state in (LegState.DRAFT, LegState.AWAITING_AUTHORIZATION):
             leg.failure_reason = "not authorized"
@@ -582,8 +735,10 @@ class ExecutionEngine:
         if cur:
             self.reservations[account_id] = (cur - amount).clamp_min_zero()
 
+    @_serialized
     def recover_unknown(self, leg: PaymentLeg) -> PaymentLeg:
         """Query the provider with the ORIGINAL identity. Never resubmit blindly."""
+        self._require_simulation_scope()
         if leg.state != LegState.OUTCOME_UNKNOWN:
             return leg
         resp = self.provider.query(leg)
@@ -600,8 +755,108 @@ class ExecutionEngine:
                            "status recovery confirmed no payment was created")
         return leg
 
+    def _transaction_kind(self, leg: PaymentLeg) -> TxKind:
+        destination = self.hh.accounts.get(leg.destination_account_id)
+        if leg.kind == LegKind.CARD_STATEMENT or (
+                destination and destination.type == AccountType.CREDIT_CARD):
+            return TxKind.CARD_REPAYMENT
+        if leg.liability_id or (destination and destination.type in (
+                AccountType.MORTGAGE, AccountType.AUTO_LOAN,
+                AccountType.STUDENT_LOAN, AccountType.PERSONAL_LOAN,
+                AccountType.BNPL, AccountType.SBLOC, AccountType.MARGIN)):
+            return TxKind.LOAN_PAYMENT
+        if leg.kind == LegKind.BILL_PAYMENT and destination is None:
+            return TxKind.PURCHASE
+        return TxKind.INTERNAL_TRANSFER
+
+    def _record_settlement(self, leg: PaymentLeg) -> None:
+        """Record both sides of an actual simulated posting, once per leg.
+
+        Leg-derived identities retain the link to the payment receipt. Transfers
+        and debt repayments remain distinct from purchases and income.
+        """
+        kind = self._transaction_kind(leg)
+        entries = [("source", leg.source_account_id, -leg.amount),
+                   ("destination", leg.destination_account_id, leg.amount)]
+        present = [(side, account_id, amount) for side, account_id, amount in entries
+                   if account_id in self.hh.accounts]
+        ids = {side: f"tx_{leg.id}_settlement_{side}" for side, _, _ in present}
+        existing = {tx.id for tx in self.hh.transactions}
+        for side, account_id, amount in present:
+            if ids[side] in existing:
+                continue
+            other_side = "destination" if side == "source" else "source"
+            self.hh.transactions.append(Transaction(
+                id=ids[side], account_id=account_id, date=self.hh.as_of,
+                amount=amount, description=leg.destination_label or "Transfer",
+                category=leg.purpose.value, kind=kind, state=TxState.POSTED,
+                transfer_group_id=leg.group_id, linked_tx_id=ids.get(other_side)))
+
+    def _record_return(self, leg: PaymentLeg, reason: str) -> None:
+        originals = {f"tx_{leg.id}_settlement_source", f"tx_{leg.id}_settlement_destination"}
+        existing = {tx.id for tx in self.hh.transactions}
+        for tx in list(self.hh.transactions):
+            if tx.id not in originals:
+                continue
+            tx.state = TxState.REVERSED
+            return_id = tx.id.replace("_settlement_", "_return_")
+            if return_id in existing:
+                continue
+            self.hh.transactions.append(Transaction(
+                id=return_id, account_id=tx.account_id, date=self.hh.as_of,
+                amount=-tx.amount, description=f"Returned: {reason}",
+                category=tx.category, kind=tx.kind, state=TxState.POSTED,
+                transfer_group_id=leg.group_id, linked_tx_id=tx.id))
+
+    def _payment_application(self, leg: PaymentLeg) -> PaymentApplication:
+        zero = Money.zero(leg.amount.currency)
+        destination = self.hh.accounts.get(leg.destination_account_id)
+        liability = self.hh.liabilities.get(leg.liability_id) if leg.liability_id else None
+        if liability is None:
+            liability = next((item for item in self.hh.liabilities.values()
+                              if item.account_id == leg.destination_account_id), None)
+            if liability:
+                leg.liability_id = liability.id
+        card = destination and destination.type == AccountType.CREDIT_CARD
+        loan = liability or (destination and destination.type in (
+            AccountType.MORTGAGE, AccountType.AUTO_LOAN, AccountType.STUDENT_LOAN,
+            AccountType.PERSONAL_LOAN, AccountType.SBLOC, AccountType.MARGIN, AccountType.BNPL))
+        result = PaymentApplication(principal_applied=zero, destination_current_delta=zero,
+                                    destination_available_delta=zero, unapplied_to_principal=zero)
+        if card:
+            result.principal_applied = leg.amount.min(liability.balance.clamp_min_zero()) if liability else zero
+            result.destination_current_delta = leg.amount
+            result.explanation = "Card payment reduces the current balance; the original statement remains a historical snapshot."
+        elif loan and leg.principal_only and liability:
+            result.principal_applied = leg.amount.min(liability.balance.clamp_min_zero())
+            result.destination_current_delta = result.principal_applied
+            result.unapplied_to_principal = leg.amount - result.principal_applied
+            result.explanation = "Confirmed principal-only instruction; any amount above outstanding principal remains unapplied."
+        elif loan:
+            result.unapplied_to_principal = leg.amount
+            result.confidence = Confidence.INSUFFICIENT
+            result.explanation = ("The cash payment is recorded, but the provider has not supplied its principal, "
+                                  "interest, and escrow application. Outstanding principal remains at its last "
+                                  "recorded value. Contractual expectations below are not posted amounts.")
+            if liability:
+                result.expected_interest = (liability.balance * liability.monthly_rate).round()
+                result.expected_escrow = liability.escrow
+                result.expected_mortgage_insurance = liability.mortgage_insurance
+        elif destination:
+            result.destination_current_delta = leg.amount
+            result.destination_available_delta = leg.amount
+            result.explanation = "Transfer posted between household accounts."
+        else:
+            result.explanation = "Bill payment posted from the household funding account."
+        return result
+
+    @_serialized
     def settle(self, leg: PaymentLeg, credited: bool = True) -> PaymentLeg:
+        self._require_simulation_scope()
         if leg.state == LegState.PROCESSING:
+            application = self._payment_application(leg)
+            leg.application = application
+            leg.settled_on = self.hh.as_of
             leg.transition(LegState.FUNDS_AVAILABLE, "funds available at destination")
             src = self.hh.accounts.get(leg.source_account_id)
             if src:
@@ -610,23 +865,16 @@ class ExecutionEngine:
                 self._release(src.id, leg.amount)
             dst = self.hh.accounts.get(leg.destination_account_id)
             if dst:
-                dst.available = dst.available + leg.amount
-                dst.current = dst.current + leg.amount
-            # This is the moment money actually moved -- mark it so a
-            # later return knows there is something real to reverse (see
-            # `apply_return`), and update the records a settled payment is
-            # actually supposed to move beyond the two account balances:
-            # a debt's outstanding balance and a reserve's funded amount.
-            # Both were previously left untouched by settlement entirely,
-            # which is what let a reconciled card payment leave the linked
-            # liability's balance unchanged and a reserve-funding payment
-            # leave the reserve's progress (and the policy's funded amount)
-            # unchanged, however many paychecks funded it.
+                dst.available = dst.available + application.destination_available_delta
+                dst.current = dst.current + application.destination_current_delta
             leg.settlement_applied = True
             if leg.liability_id:
                 lia = self.hh.liabilities.get(leg.liability_id)
                 if lia:
-                    lia.balance = (lia.balance - leg.amount).clamp_min_zero()
+                    lia.balance = lia.balance - application.principal_applied
+            for card in self.hh.cards.values():
+                if card.account_id == leg.destination_account_id:
+                    card.current_balance = card.current_balance - leg.amount
             if leg.reserve_id:
                 res = self.hh.reserves.get(leg.reserve_id)
                 if res:
@@ -634,19 +882,34 @@ class ExecutionEngine:
             if leg.policy_id:
                 pol = self.hh.policies.get(leg.policy_id)
                 if pol:
-                    pol.funded_this_period = pol.funded_this_period + leg.amount
+                    pol.record_funding(leg.amount, leg.policy_occurrence_date or
+                                       leg.scheduled_for or self.hh.as_of, self.hh.as_of)
+            occurrence = self.hh.bill_occurrences.get(leg.occurrence_id)
+            if occurrence:
+                occurrence.funded = occurrence.funded + leg.amount
+            self._record_settlement(leg)
         if credited and leg.state == LegState.FUNDS_AVAILABLE:
+            occurrence = self.hh.bill_occurrences.get(leg.occurrence_id)
+            if occurrence and not leg.occurrence_paid_applied:
+                occurrence.paid = occurrence.paid + leg.amount
+                leg.occurrence_paid_applied = True
             leg.transition(LegState.CREDITED_BY_BILLER,
-                           "creditor confirmed application of the payment")
+                           "creditor confirmed receipt of the payment")
             leg.transition(LegState.RECONCILED,
-                           "matched to bank activity and creditor application")
+                           "matched payment receipt; inspect application for principal allocation")
+            for tx in self.hh.transactions:
+                if tx.id in (f"tx_{leg.id}_settlement_source",
+                             f"tx_{leg.id}_settlement_destination"):
+                    tx.state = TxState.RECONCILED
         return leg
 
+    @_serialized
     def apply_return(self, leg: PaymentLeg, reason: str = "returned by the bank"
                      ) -> dict:
         """SC55: a funding transfer returned after initial settlement invalidates
         later allocations. Rebuild from actual status; never reverse completed
         legs automatically."""
+        self._require_simulation_scope()
         if leg.state not in (LegState.FUNDS_AVAILABLE, LegState.CREDITED_BY_BILLER,
                              LegState.RECONCILED, LegState.PROCESSING,
                              LegState.OUTCOME_UNKNOWN):
@@ -665,15 +928,21 @@ class ExecutionEngine:
             src = self.hh.accounts.get(leg.source_account_id)
             dst = self.hh.accounts.get(leg.destination_account_id)
             if dst:
-                dst.available = dst.available - leg.amount
-                dst.current = dst.current - leg.amount
+                current_delta = leg.application.destination_current_delta if leg.application else leg.amount
+                available_delta = leg.application.destination_available_delta if leg.application else leg.amount
+                dst.available = dst.available - available_delta
+                dst.current = dst.current - current_delta
             if src:
                 src.available = src.available + leg.amount
                 src.current = src.current + leg.amount
             if leg.liability_id:
                 lia = self.hh.liabilities.get(leg.liability_id)
                 if lia:
-                    lia.balance = lia.balance + leg.amount
+                    lia.balance = lia.balance + (leg.application.principal_applied
+                                                  if leg.application else leg.amount)
+            for card in self.hh.cards.values():
+                if card.account_id == leg.destination_account_id:
+                    card.current_balance = card.current_balance + leg.amount
             if leg.reserve_id:
                 res = self.hh.reserves.get(leg.reserve_id)
                 if res:
@@ -681,9 +950,23 @@ class ExecutionEngine:
             if leg.policy_id:
                 pol = self.hh.policies.get(leg.policy_id)
                 if pol:
-                    pol.funded_this_period = (
-                        pol.funded_this_period - leg.amount).clamp_min_zero()
+                    pol.reverse_funding(leg.amount, leg.policy_occurrence_date or
+                                        leg.scheduled_for or leg.settled_on or self.hh.as_of,
+                                        leg.settled_on or self.hh.as_of)
+            occurrence = self.hh.bill_occurrences.get(leg.occurrence_id)
+            if occurrence:
+                occurrence.funded = (occurrence.funded - leg.amount).clamp_min_zero()
+                if leg.occurrence_paid_applied:
+                    occurrence.paid = (occurrence.paid - leg.amount).clamp_min_zero()
+            leg.occurrence_paid_applied = False
+            self._record_return(leg, reason)
             leg.settlement_applied = False
+        else:
+            # The bank confirmed no settlement survived. Release commitments
+            # without manufacturing a posting for money that never moved.
+            self._release(leg.source_account_id, leg.amount)
+            if leg.mandate:
+                leg.mandate.release_use(leg.amount, leg.scheduled_for)
 
         grp = self.groups.get(leg.group_id)
         invalidated: list[str] = []
@@ -691,7 +974,7 @@ class ExecutionEngine:
             for other in grp.legs:
                 if leg.id in other.depends_on and other.state not in TERMINAL:
                     if other.state in (LegState.AUTHORIZED, LegState.SCHEDULED,
-                                       LegState.DRAFT):
+                                       LegState.DRAFT, LegState.AWAITING_AUTHORIZATION):
                         other.transition(LegState.CANCELED,
                                          f"funding leg {leg.id} was returned")
                         invalidated.append(other.id)
@@ -705,6 +988,7 @@ class ExecutionEngine:
                 "reversed automatically and the plan is not marked entirely unpaid."),
         }
 
+    @_serialized
     def pause_all(self) -> dict:
         """EX09's pause-all control. Section 21: revocation stops new app-originated
         actions and initiates supported cancellation for pending items; it cannot
@@ -731,6 +1015,7 @@ class ExecutionEngine:
                      "guaranteed."),
         }
 
+    @_serialized
     def run_group(self, group: TransferGroup, settle: bool = True) -> dict:
         """Required legs first; optional legs only when funding still allows.
         A failure in one leg does not fail the group."""

@@ -45,6 +45,7 @@ INTENTS: list[Intent] = [
         r"allocate (my |this )?(paycheck|pay|income)",
         r"where (should|does) my (pay|money) go",
         r"monthly (plan|budget|split|allocation)",
+        r"\bbills?\b[^.?]*\bpaycheck\b[^.?]*\bcover\b",
     ], 3, AnswerState.SAVED_PLAN),
 
     Intent("money_overview", "get_money_overview", [
@@ -53,7 +54,14 @@ INTENTS: list[Intent] = [
         r"\b(overview|dashboard|summary) of (my )?(money|finances|accounts)\b",
         r"how much (do i have|money do i have)",
         r"\bwhat('?s| is) my (balance|position)\b",
+        r"\bsummari[sz]e (my |the )?accounts\b",
+        r"\bhow much cash do i have\b",
     ], 2),
+
+    Intent("reserves", "get_money_overview", [
+        r"\b(savings|emergency|annual) (fund|reserves?)\b",
+        r"\bprotected for emergencies\b", r"\breserves? funded\b",
+    ], 3),
 
     Intent("spending_allowance", "get_spending_allowance", [
         r"\bcan i afford\b", r"\bhow much can i spend\b",
@@ -75,6 +83,7 @@ INTENTS: list[Intent] = [
         r"\bbills? (due|this month|next)\b", r"\bwhat do i owe\b",
         r"\bwhat bills\b", r"\bbills?\b[^.?]*\bcoming up\b",
         r"\bpayments?\b[^.?]*\bcoming up\b",
+        r"\bhow much is due\b", r"\bpayments? need review\b",
     ], 2),
 
     Intent("debt_compare", "compare_debt_strategies", [
@@ -84,6 +93,7 @@ INTENTS: list[Intent] = [
         r"\brepayment (plan|comparison|strategy)\b",
         r"\bminimi[sz]e (my )?interest\b",
         r"\bbest way to pay (off|down)\b",
+        r"\bdebt repayment strateg(y|ies)\b",
     ], 3, AnswerState.HYPOTHETICAL),
 
     Intent("extra_payment", "what_if_extra_payment", [
@@ -92,6 +102,10 @@ INTENTS: list[Intent] = [
         r"\bif i (add|put) \$?\d+\b",
         r"\bpay \$?\d+ (more|extra)\b",
     ], 4, AnswerState.HYPOTHETICAL),
+
+    Intent("extra_payment_help", "compare_debt_strategies", [
+        r"\bhow would an? extra payment\b", r"\bextra payment affect (my )?debt\b",
+    ], 3),
 
     Intent("mortgage", "get_mortgage_scenarios", [
         r"\bmortgage\b.*\b(extra|lump|recast|principal|prepay|pay ?off)\b",
@@ -167,11 +181,16 @@ INTENTS: list[Intent] = [
         r"\b(tax )?deduct\w*\b", r"\bwrite off\b", r"\bdeduction\b",
     ], 3),
 
+    Intent("tax_assumptions", "get_tax_profile", [
+        r"\btax (assumptions|profile|rates?)\b",
+    ], 3),
+
     Intent("coverage", "get_deposit_coverage", [
         r"\b(fdic|ncua|insured|insurance)\b", r"\bcovered\b.*\bbank\b",
         r"\bis my (cash|money) (safe|insured|protected)\b",
         r"\bdeposit (protection|coverage|insurance)\b",
         r"\bdifferent platforms\b",
+        r"\bhow is my (cash|money) protected\b",
     ], 4),
 
     Intent("coverage_remedy", "plan_coverage_remedy", [
@@ -189,6 +208,7 @@ INTENTS: list[Intent] = [
         r"\bwhat('?s| is) (set up|automated|running)\b",
         r"\b(rules?|automation)\b[^.?]{0,20}\b(set up|do i have|are running)\b",
         r"\bpause\b",
+        r"\bautomations? are paused\b",
         r"\bevery (month|payday|paycheck)\b",
     ], 3, AnswerState.AUTHORIZED),
 
@@ -199,6 +219,7 @@ INTENTS: list[Intent] = [
         r"\b(stale|not (updating|syncing|synced|refresh(ed|ing)?))\b",
         r"\bis (my|the) [\w\s]{0,20}\bconnect(ed|ion)\b",
         r"\bwhy (is|are) (my|the) (balance|account)s? (not updating|out of date|old)\b",
+        r"\bconnections? need attention\b",
     ], 5),
 
     Intent("recurring_activity", "get_recurring_activity", [
@@ -412,6 +433,30 @@ def template_answer(intent: str, result: dict) -> str:
                 f"{_mv(result['total_debt'])}, so estimated net worth is "
                 f"{_mv(result['net_worth'])} as of {result['as_of']}. "
                 f"{result['notes'][0]}")
+
+    if intent == "reserves":
+        out = [f"Protected reserves total {_mv(result['protected_reserves'])}."]
+        for reserve in result.get("reserves", []):
+            out.append(f"  {reserve['name']}: {_mv(reserve['funded'])} funded "
+                       f"toward {_mv(reserve['target'])}, with "
+                       f"{_mv(reserve['remaining'])} remaining, in {reserve['account']}.")
+        out.append("These reserves are earmarked within existing account balances.")
+        return "\n".join(out)
+
+    if intent == "extra_payment_help":
+        return (f"Your current debt comparison uses {_mv(result['extra'])} extra "
+                f"each month within a total budget of {_mv(result['budget'])}. "
+                "How much extra per month would you like to compare? "
+                "No payment or plan has been changed.")
+
+    if intent == "tax_assumptions":
+        profile = result["tax_profile"]
+        return (f"The saved tax profile uses a federal marginal rate of "
+                f"{profile['federal_marginal']} and a state marginal rate of "
+                f"{profile['state_marginal']}, for a combined rate of "
+                f"{profile['combined_marginal']}. Rates are expressed as decimals. "
+                f"Profile verified: {profile['verified']}. "
+                + " ".join(result.get("assumptions", [])))
 
     if intent == "spending_allowance":
         return (f"You can spend about {_mv(result['amount'])} through "

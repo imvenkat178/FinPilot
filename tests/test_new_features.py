@@ -136,11 +136,15 @@ def test_a_paused_policy_is_excluded_from_the_monthly_plan():
     assert not any(t.policy_id == "pol_insurance" for t in plan.targets)
 
 
-def test_a_skip_next_policy_is_excluded_from_the_monthly_plan():
+def test_skip_next_keeps_the_monthly_obligation_visible():
     hh = demo_household()
-    hh.policies["pol_insurance"].skip_next = True
-    plan = AllocationEngine(hh).build_monthly_plan(2026, 9)
-    assert not any(t.policy_id == "pol_insurance" for t in plan.targets)
+    hh.skip_policy_occurrence(hh.policies["pol_insurance"])
+    plan, runs = AllocationEngine(hh).allocate_month(2026, 9)
+    assert any(t.policy_id == "pol_insurance" for t in plan.targets)
+    skipped = [a for run in runs if run.pay_date == date(2026, 9, 15)
+               for a in run.allocations if a.policy_id == "pol_insurance"]
+    assert skipped and skipped[0].amount.is_zero
+    assert "skipped" in skipped[0].reason
 
 
 def test_pausing_one_policy_does_not_touch_another():
@@ -204,9 +208,9 @@ def test_build_group_from_bill_raises_on_unknown_bill_at_the_engine_level():
 
 @pytest.fixture
 def client():
-    from fastapi.testclient import TestClient
-    from finpilot.api.app import app
-    return TestClient(app)
+    from tests.api_support import authenticated_client
+    with authenticated_client() as client:
+        yield client
 
 
 def test_api_connections_endpoint(client):
@@ -233,6 +237,9 @@ def test_api_skip_next_unknown_policy_is_404(client):
 
 
 def test_api_pay_bill_once_endpoint(client):
+    authorization = client.post("/api/policies/pol_mortgage/authorize",
+        json={"mode": "standing", "per_run_cap": "2500"})
+    assert authorization.status_code == 200
     r = client.post("/api/bills/bill_mortgage/pay-once")
     assert r.status_code == 200
     assert r.json()["preflight"]["ok"] is True

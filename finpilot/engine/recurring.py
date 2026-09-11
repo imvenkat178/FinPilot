@@ -46,7 +46,7 @@ class RecurringActivityEngine:
                   is_next_occurrence: bool) -> tuple[bool, str]:
         if p.paused:
             return False, "policy is paused"
-        if p.skip_next and is_next_occurrence:
+        if self.hh.policy_skipped_on(p, occurrence_date):
             return False, "user chose to skip the next occurrence"
         if not p.mandate.active:
             return False, "no active authorization for this policy"
@@ -60,23 +60,7 @@ class RecurringActivityEngine:
         eligible paycheck lands -- so its trigger dates come from the income
         source(s) it is funded from, the same source the allocator itself
         reads (`month_income_dates`)."""
-        if p.schedule:
-            return p.schedule.occurrences(start, until)
-        if p.cadence.value == "on_income":
-            dates: set[date] = set()
-            for sid in (p.eligible_income_source_ids or list(self.hh.income_sources)):
-                src = self.hh.income_sources.get(sid)
-                if src and src.schedule:
-                    dates.update(src.schedule.occurrences(start, until))
-            # dated events already on the books (e.g. this month's confirmed
-            # paycheck) take precedence over the schedule's generic guess
-            for ev in self.hh.income_events:
-                d = ev.received_date or ev.expected_date
-                if start <= d <= until and ev.source_id in (
-                        p.eligible_income_source_ids or [ev.source_id]):
-                    dates.add(d)
-            return sorted(dates)
-        return []
+        return self.hh.policy_trigger_dates(p, start, until)
 
     def upcoming_runs(self, horizon_days: int = 60,
                       as_of: Optional[date] = None) -> list[UpcomingRun]:

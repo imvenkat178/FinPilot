@@ -247,7 +247,10 @@ class AllocationEngine:
             for src in self.hh.income_sources.values():
                 if src.schedule:
                     for d in src.schedule.occurrences(first, last):
-                        events.append((d, src.net_amount, None))
+                        projected = IncomeEvent(id=f"scheduled:{src.id}:{d.isoformat()}",
+                                                source_id=src.id, expected_date=d,
+                                                expected_amount=src.net_amount)
+                        events.append((d, src.net_amount, projected))
         return sorted(events, key=lambda t: t[0])
 
     def _policy_monthly_target(self, p: RecurringPolicy, monthly_income: Money,
@@ -304,7 +307,7 @@ class AllocationEngine:
         # committed = required + protected, needed as the base for surplus rules
         committed = Money.zero(self.cur)
         for p in self.hh.policies_sorted():
-            if p.paused or p.skip_next:
+            if p.paused:
                 continue
             if p.is_required or p.is_protected_reserve:
                 committed = committed + self._policy_monthly_target(
@@ -312,17 +315,22 @@ class AllocationEngine:
 
         targets: list[MonthlyTarget] = []
         for p in self.hh.policies_sorted():
-            if p.paused or p.skip_next:
+            if p.paused:
                 continue
             tgt = self._policy_monthly_target(p, monthly_income, committed)
             if tgt.is_zero:
                 continue
+            due_date = self._due_date_for(p, year, month)
+            funded = p.funding_for_period(date(year, month, 1), self.hh.as_of)
+            bill = self.hh.bill_for_policy(p)
+            if bill and due_date:
+                funded = funded.max(self.hh.bill_occurrence(bill, due_date).funded)
             targets.append(MonthlyTarget(
                 policy_id=p.id, name=p.name, purpose=p.purpose, target=tgt,
                 destination_account_id=p.destination_account_id,
-                due_date=self._due_date_for(p, year, month),
+                due_date=due_date,
                 priority=p.priority, required=p.is_required,
-                protected=p.is_protected_reserve, funded=p.funded_this_period,
+                protected=p.is_protected_reserve, funded=funded,
                 liability_id=p.liability_id, reserve_id=p.destination_reserve_id))
         return MonthlyPlan(year, month, targets, monthly_income, self.cur)
 
@@ -542,6 +550,17 @@ class AllocationEngine:
 
     def _fund(self, t: MonthlyTarget, remaining: Money, result: PaycheckAllocation,
               urgency: Urgency, reason: str, cap: Optional[Money] = None) -> Money:
+        policy = self.hh.policies.get(t.policy_id)
+        trigger_date = t.due_date if policy and policy.schedule and t.due_date else result.pay_date
+        if policy and self.hh.policy_skipped_on(policy, trigger_date):
+            result.allocations.append(Allocation(
+                policy_id=t.policy_id, name=t.name, purpose=t.purpose,
+                destination_account_id=t.destination_account_id,
+                amount=Money.zero(self.cur), status=AllocationStatus.PAUSED,
+                urgency=urgency, reason="This dated occurrence was skipped by the user.",
+                due_date=t.due_date, monthly_target=t.target, funded_before=t.funded,
+                requested=t.remaining, liability_id=t.liability_id, reserve_id=t.reserve_id))
+            return remaining
         want = t.remaining if cap is None else t.remaining.min(cap)
         if want.is_zero:
             return remaining

@@ -29,7 +29,7 @@ def _m(v) -> M:
 
 
 def demo_household() -> Household:
-    hh = Household(id="hh_demo", name="Rivera household", as_of=TODAY)
+    hh = Household(id="hh_demo", name="Rivera household", as_of=TODAY, payment_sandbox=True)
 
     person = Entity(id="ent_primary", name="A. Rivera", owner_type=OwnerType.INDIVIDUAL)
     partner = Entity(id="ent_partner", name="J. Rivera", owner_type=OwnerType.INDIVIDUAL)

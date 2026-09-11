@@ -1,278 +1,113 @@
 # FinPilot
 
-A working implementation of the *AI Personal Finance Application* specification
-(Version 3) with the Version 4 additions folded in.
+A hosted personal-finance workspace with separate accounts and detail screens, paycheck planning, cash-flow forecasts, goals, debt and card analysis, and an assistant grounded in financial calculations. The approved Studio interface is used throughout the application.
 
-The centre of the product is the paycheck-splitting engine: concurrent recurring
-policies funded from real income events, with deadlines — not percentages —
-deciding what each paycheck must cover. Around it sit the debt, card, liquidity,
-tax and coverage calculators, a payment-execution engine with a durable
-lifecycle, an interactive money dashboard, and an assistant that runs on a
-**local Llama** and is not allowed to produce a number of its own.
+The application is a modular Python service with authenticated tenant boundaries, persistent data, and short database transactions. PostgreSQL is required for hosted production. SQLite supports development and tests.
 
----
+## Run locally
 
-## Quick start
+From the project directory on Windows:
 
-```bash
-pip install fastapi uvicorn pydantic httpx pytest langgraph langchain-core langsmith
-./run.sh serve                     # http://127.0.0.1:8099
+```powershell
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -r requirements.txt
+.venv/Scripts/python.exe -m uvicorn finpilot.api.app:app --host 127.0.0.1 --port 8100
 ```
 
-Point it at your local model:
+Open [FinPilot](http://127.0.0.1:8100). Create an account to start an empty private workspace. The optional sample-data choice creates a separate fictional workspace where payment simulation is available. An existing sample workspace cannot connect real banks.
 
-```bash
-export FINPILOT_LLM_BASE_URL=http://localhost:11434/v1   # Ollama
-export FINPILOT_LLM_MODEL=llama3.2
-./run.sh serve
+Local data is saved to `.local/finpilot.db` by default and survives application restarts. No real credentials or sample user passwords are embedded in the application. Environment variables configure the database, public origin, AI endpoint, and optional bank provider; native startup does not automatically load `.env`.
+
+For hosting, use the nonroot Docker image, PostgreSQL, Alembic migrations, and HTTPS configuration described in [DEPLOYMENT.md](DEPLOYMENT.md). Docker and a live PostgreSQL service were unavailable during local implementation; the image and target database still require validation in the deployment environment.
+
+## Available workflows
+
+| Area | Working behavior |
+| --- | --- |
+| Identity | Sign up, sign in, revocable sessions, logout, private workspace per user. |
+| Accounts | Create/edit cash, card, loan, investment and asset records; source dates; separate summary, activity, analytics and details tabs. |
+| Transactions | CSV mapping and preview, atomic import, duplicate detection, paginated history, search and corrections. Imports preserve reported balances. |
+| Income | Sources, recurring schedules, expected deposits, and received-income records. |
+| Payments | Bills, dated recurrences, funding accounts, exact-occurrence draft checks, and persisted activity. |
+| Paychecks | Deadline-aware allocations, saved priorities, monthly targets and shortfalls. |
+| Goals | Targets, assigned funds, dates and protected reserves inside existing account balances. |
+| Rules | Fixed, percentage and target rules; explicit bill binding; authorization; pause, resume and skip-next. |
+| Cash flow | Dated projections, protected cash, spending allowance and operating-buffer calculations. |
+| Credit and loans | Debt strategy comparisons, extra payments, mortgage scenarios, utilization and reward calculations. |
+| Tax and protection | Editable assumptions, savings/debt comparisons, liquidity tiers and coverage calculations. |
+| Assistant | Contextual questions, calculator evidence, saved recent conversations, optional model explanations and calculator fallback. |
+| Bank linking | Configurable Plaid Link for supported US checking, savings and money-market accounts; encrypted tokens, cursor sync and disconnect. |
+| Sample execution | Reviewed, explicitly confirmed payment simulation, current preflight checks, independent payment legs, idempotency, recovery and audit records. |
+
+Bank linking stays unavailable until the operator configures provider credentials and a token-encryption key. It imports cached bank snapshots, not guaranteed realtime balances. The adapter has mocked integration tests; live bank linking has not been exercised here. Credit/loan terms can be entered manually. Live money movement is not implemented: real workspaces cannot execute simulated settlements against their recorded balances.
+
+Email/password authentication does not include email verification, password recovery, MFA, or household invitations. Those require additional identity/product integrations before a public rollout that depends on them.
+
+## Architecture and latency
+
+[ARCHITECTURE.md](ARCHITECTURE.md) describes the boundaries and tradeoffs in detail.
+
+- FastAPI routes validate requests and derive the household from the session. Account IDs and query parameters do not grant access.
+- The runtime gives each operation its own household snapshot and SQLAlchemy session. PostgreSQL row locks, live membership checks, revision checks, ledger projection updates and audit events commit together.
+- Versioned allowlisted JSON preserves Decimal amounts, recurrence history, shared mandates and payment lifecycle state. No pickle is used for application persistence.
+- The initial screen uses one consistent bootstrap response. Dashboard calculations cache by household revision; transaction history uses an indexed, bounded read endpoint.
+- Model discovery and inference stay outside financial transaction locks. Status reads perform no network calls. Inference has a bounded admission limit, request budget, pooled client and failure cooldown.
+- Financial engines supply numbers and action states. Model wording is checked against those results; failures use calculator wording. These checks do not establish financial suitability or guarantee every generated interpretation.
+
+The current aggregate snapshot includes history, so large histories still increase decode/write work. The benchmark records that cost rather than claiming unlimited scale or a hosted latency guarantee.
+
+## Local latency measurements
+
+Run the repeatable benchmark with synthetic data and a mocked model:
+
+```powershell
+.venv/Scripts/python.exe scripts/benchmark.py --rows 5000 --runs 12 --output .local/benchmark.json
 ```
 
-Any OpenAI-compatible endpoint works — Ollama (`:11434`), llama.cpp server
-(`:8080`), LM Studio (`:1234`), vLLM (`:8000`). With no endpoint set the app
-probes those ports; with none reachable it answers from the calculators alone,
-correctly, and says so in the header.
+Measured on Windows 11 / Python 3.12 with disposable SQLite WAL databases and the real authenticated ASGI request stack (12 repetitions, September 11, 2026):
 
-```bash
-./run.sh test        # 161 tests
-./run.sh queries     # the user-query suite, end to end
-```
+| Request | Sample median | Sample + 5,000 transactions median / p95 |
+| --- | --- | --- |
+| Bootstrap, empty application caches | 32 ms | 132 / 210 ms |
+| Bootstrap, populated application caches | 13 ms | 16 / 17 ms |
+| Indexed account history, first 50 | 4 ms | 6 / 7 ms |
+| Update an account | 11 ms | 262 / 314 ms |
+| Create an account | 12 ms | 317 / 354 ms |
 
----
+The 5,000-row CSV import took 595 ms. A held mock inference request remained pending while a financial read and write completed in 265 ms and 351 ms; the benchmark asserts both finish before the mock model is released. Cache validity tests cover another worker's commit, membership removal and calendar rollover.
 
-## What is in here
+These are local request timings, not a hosted latency guarantee. They exclude browser rendering, network/TLS and PostgreSQL contention. �Cold� clears application caches while database and operating-system caches remain warm. Full snapshot decoding and writes still scale with transaction history; the bounded SQL history endpoint and warm bootstrap avoid that work. Account deletion is not an exposed operation, so the benchmark measures supported create/read/update routes.
 
-```
+## Project layout
+
+```text
 finpilot/
-  money.py        Decimal money with explicit currency; unlike currencies never add
-  dates.py        Cadences, day-of-month rules, business days, settlement calendars
-  models.py       The section 13 core objects, each carrying its own provenance
-  engine/
-    allocator.py  Paycheck and monthly allocation          §4, §14   <- the core
-    debt.py       Repayment simulator, mortgage, recast     §7, §8, §18
-    ledger.py     Dated cash ledger, forecast, allowance    §4
-    liquidity.py  Dynamic buffer, tiers, sweeps, timing     §15, §16
-    cards.py      Card ranking, caps, grace state           §5, §6
-    tax.py        Net benefit comparison                    §17
-    coverage.py   Deposit insurance, collateral stress      §19, §20
-  execution/
-    engine.py     Lifecycle, idempotency, recovery, faults  §21
-  ai/
-    llm.py        Local model client with autodetection
-    tools.py      27 calculation tools with permission scope
-    router.py     Deterministic intent routing + templates
-    guardrails.py Grounding, injection defence, scope, answer state
-    graph.py      The LangGraph agent
-    mock_server.py A local-model test double that can misbehave on purpose
-  api/app.py      38 REST endpoints
-  web/index.html  The dashboard
+  api/            Authenticated HTTP routes and UI projections
+  services/       Identity and validated workspace commands
+  persistence/    SQLAlchemy records and versioned codec
+  runtime.py      Transactions, snapshot reads, cache and AI admission
+  models.py       Financial records, dated occurrences and authority
+  engine/         Allocation, cash flow, debt, cards, tax and coverage
+  execution/      Sample payment lifecycle and recovery
+  integrations/   Optional read-only bank adapter
+  ai/             Intent routing, model client and answer checks
+  web/            Studio pages, forms, account details and assistant
+alembic/          Reviewed database migrations
+tests/            Domain, hosted, integration and frontend contracts
 ```
 
----
+The `prototype/` directory retains the earlier design artifact. The running application is served by `finpilot.api.app:app`.
 
-## The allocation engine
+## Verification
 
-Three rules, and everything else follows.
-
-**The monthly plan is the target ledger; paychecks are its funding events.** If
-a monthly goal is $700 and $400 is already funded, the next run allocates at
-most the remaining $300.
-
-**A deadline before the next paycheck is funded from this one.** This is the
-rule that makes even splits fail:
-
-```
-Paycheck 2026-09-01, $3,000 in                 Paycheck 2026-09-15, $3,000 in
-  $1,800  Mortgage       due 09-05  ← urgent     $250  Student loan  due 09-20
-  $  150  Utilities      due 09-08  ← urgent     $250  Insurance     due 09-22
-  $  250  Auto loan      due 09-10  ← urgent     $500  Spending
-  $  600  Card statement due 09-12  ← urgent     $700  Emergency reserve
-  $  200  Spending       (remainder)             $300  Annual reserve
-                                                 $500  Brokerage cash
-                                                 $500  Extra principal
+```powershell
+.venv/Scripts/python.exe -m pytest -q
+node tests/management_frontend.mjs
+node tests/execution_frontend.mjs
+# Requires the local server; creates an isolated sample QA account:
+node tests/frontend.mjs
 ```
 
-Splitting the $1,800 mortgage across both paychecks leaves the 5th unfunded.
-The engine reserves the deadline first and gives the remainder to the next
-target in the user's saved priority order.
+Tests cover financial examples, payment retries and returns, occurrence accounting, authentication and CSRF, tenant isolation, stale revisions, concurrent writers, persistence across restarts, imports, assistant history, model fallback and migrations. Bank tests use mocked provider responses and synthetic tokens. Browser verification also exercises the new forms against the actual local API and database.
 
-**Required obligations and protected reserves take precedence over optional
-percentages** — and only over *percentages*. A fixed-amount target such as
-household spending keeps the position the user gave it, which is what "the saved
-priority order" means when a paycheck arrives short.
-
-That table above is Table 10 of the specification, reproduced to the cent by
-`tests/test_worked_examples.py`.
-
----
-
-## First-production-release features added after the initial build
-
-The specification's own release plan (table 15) names a "First production
-release" tier beyond the core allocator: supported account connections,
-one-time payments, and recurring-rule activity with pause/skip — table 7's
-Screens list calls these out by name (Accounts' "connection health";
-Recurring rules and activity's "upcoming runs... pause and skip actions").
-These were gaps in the initial build, now closed:
-
-* **Account connection health** (`get_account_connections`, `/api/connections`) —
-  every account's link status and, when broken, the specific reason and
-  whether it affects a figure currently on screen. Never conflated with the
-  balance itself.
-* **Recurring-rule activity** (`get_recurring_activity`, `/api/recurring/activity`) —
-  every standing rule's actual upcoming dated occurrences (derived from the
-  paycheck schedule for `ON_INCOME` rules, exactly as the allocator reads them,
-  not a separate guess), whether each will run, and why not when it won't.
-* **Per-rule pause and skip-next** (`pause_recurring_policy`,
-  `skip_next_occurrence`) — pausing stops every future occurrence; skipping
-  stops only the very next one. Both differ from the existing pause-*all*
-  control, and both are enforced in the allocator itself
-  (`build_monthly_plan`), not only in the activity view.
-* **One-time bill payments** (`pay_bill_once`, `/api/bills/{id}/pay-once`) —
-  builds and preflights a payment for one specific bill outside the paycheck
-  plan. Building never sends money; a bill with no backing mandate is
-  honestly blocked rather than silently allowed through.
-
-`tests/test_new_features.py` (26 tests) covers all four end to end: the
-calculators, the allocator wiring, and the REST surface.
-
----
-
-## The assistant
-
-```
-scope_guard → classify → execute_tools → compose → verify → finalize
-```
-
-A LangGraph state machine where the model has exactly two jobs: read a JSON
-tool result, and write a sentence. It never chooses a number.
-
-The graph runs in **router mode** by default — the deterministic router picks
-the calculator, because a 1B local model is not a reliable free-choice tool
-caller. `tool_choice: "model"` switches to genuine model-driven tool calling for
-a capable model. The guardrails are identical either way, because they run on
-the output rather than on the model's good intentions.
-
-### Four guardrails, enforced mechanically
-
-| Guardrail | What it catches |
-|---|---|
-| **Numeric grounding** | Every figure, percentage and date in the answer must appear in the tool result. An invented `$4,812.37` is rejected and the calculator's own wording is used instead. |
-| **Completed-action claims** | "I have scheduled the payment" is only permitted when a tool result actually shows `submitted`, `processing` or `reconciled`. |
-| **Untrusted echo** | A draft that reproduces text planted in a retrieved statement is rejected — this is the one a numeric check cannot see, because the injected sentence carries no figures. |
-| **Scope** | Security selection, new-product recommendation, eligibility determination and legal advice are refused, and the refusal still shows its evidence. |
-
-Every rejection is visible in the trace and in the dashboard, which labels each
-answer *the model wrote it · N figures verified* or *calculator wording*.
-
-### Testing against a model that misbehaves
-
-`finpilot/ai/mock_server.py` is a test double, not a model. It can be told to
-behave like a small local Llama going wrong:
-
-```bash
-python -m finpilot.ai.mock_server --misbehave hallucinate claim_action obey chatty
-```
-
-All four are caught. The injection case is the one worth noting: an earlier
-build passed it, because an echoed instruction contains no numbers for the
-grounding check to test. That is why `echoes_untrusted` exists.
-
----
-
-## Execution
-
-The lifecycle is durable and explicit:
-
-```
-draft → awaiting_authorization → authorized → scheduled → validating →
-submitted → processing → funds_available → credited_by_biller → reconciled
-                    ↘ failed   ↘ returned   ↘ outcome_unknown
-```
-
-Illegal transitions raise. Two invariants are structural rather than
-conventional:
-
-* an **idempotency key** derived from the payment's intent means a retry never
-  creates a second payment; and
-* an **`outcome_unknown`** leg blocks any replacement until status recovery
-  resolves it — a network timeout triggers a query against the provider with the
-  original identity, never a new submission.
-
-`SimulatedProvider` injects timeouts, NSF, rejections and post-settlement
-returns so the recovery paths are exercised deterministically:
-
-```bash
-curl -X POST localhost:8099/api/execution/build
-curl -X POST localhost:8099/api/execution/inject-fault \
-     -d '{"leg_id":"leg_...","fault":"timeout"}' -H 'Content-Type: application/json'
-curl -X POST localhost:8099/api/execution/run/grp_...
-```
-
-A returned funding transfer cancels the legs that depended on it, reopens the
-obligation, and leaves completed legs alone. `pause-all` distinguishes what it
-cancelled from what was already sent and cannot be recalled.
-
----
-
-## Version 4 additions built in
-
-The expansion review identified gaps in Version 3. These are implemented rather
-than noted:
-
-* **GX01 multi-currency ledger.** Currency is a first-class attribute on every
-  amount, with per-currency minor units (JPY 0, KWD 3). `Money(100,"USD") +
-  Money(100,"EUR")` raises. This is cheap now and expensive after a second
-  market's data exists.
-* **GX02/GX05 jurisdiction as a rule dimension.** `REGIMES` holds FDIC, both
-  NCUA trust rules either side of 1 December 2026, and FSCS either side of the
-  December 2025 increase to £120,000, plus DGS, DICGC and FCS. `regime_for()`
-  resolves by jurisdiction and date.
-* **CR02 statement-close utilization timing** — the calculation Version 3 was
-  missing. Reported utilization is a snapshot at statement close, not at the due
-  date, so the timing optimizer now carries a third objective beside interest
-  and yield.
-* **EN10 confidence ladder.** Every calculation returns a `Confidence` and names
-  what would make it exact, instead of refusing to answer.
-* **AC01 estimated assets** labelled separately: included in net worth, never in
-  payment capacity.
-
----
-
-## Tests
-
-```
-tests/test_worked_examples.py   45   every figure in §4, §6, §8, §14–§20
-tests/test_execution.py         19   lifecycle, idempotency, recovery, faults
-tests/test_ai.py                48   routing, grounding, injection, scope, states
-tests/test_core.py              23   money, dates, ledger integrity
-tests/test_new_features.py      26   connections, recurring activity, one-time payments
-tests/query_suite.py            34   user questions end to end, with and without a model
-```
-
-The worked-example suite is the regression harness that matters: if one of those
-fails, the engine has drifted from the document. Among them —
-
-* §8's three repayment strategies to the cent, including the $326.11 and
-  $1,428.27 premiums and the first-month split of $740 / $100 / $300 / $1,138.77;
-* §14's Table 10, both paychecks, all eleven destinations;
-* §15's buffer ($5,500 retained, $2,500 sweepable);
-* §16's $13.38 gross, $9.50 after tax, $65.75 avoided interest, $56.25 net;
-* §17's Table 12 including the deduction row at $304;
-* §19's $270,000 aggregate, $20,000 excess, $20,500 remedy;
-* §20's collateral stress to the $70,000 deficiency.
-
----
-
-## Boundaries the code enforces
-
-The specification's product boundary is not a disclaimer here, it is behaviour.
-The application will not recommend opening an account, select a security,
-determine tax or program eligibility, or describe a payment as sent before the
-payment service confirms it. `explain_product_boundary` is a real tool, and the
-refusal path calls it so the answer carries evidence like any other.
-
-Provider integration is simulated. A sandbox success is not production approval,
-and the licensing, provider-arrangement and regulatory work named in §21 remains
-a launch dependency that no amount of code discharges.
-
-All figures in the demo households are fictional.
+The existing Starlette/AnyIO deprecation warning comes from the installed test-client dependency; it does not fail the suite.

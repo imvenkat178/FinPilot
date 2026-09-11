@@ -379,6 +379,7 @@ def test_a_reconciled_card_payment_reduces_the_linked_liability_balance():
                   scheduled_for=hh.as_of,
                   mandate=_standing_mandate(),
                   policy_id="pol_card", liability_id="lia_card_a")
+    hh.policies[l.policy_id].mandate = l.mandate
     eng.groups["g1"] = TransferGroup(id="g1", legs=[l])
     l.transition(LegState.AUTHORIZED, "standing mandate")
     eng.execute(l)
@@ -402,6 +403,7 @@ def test_reserve_funding_updates_reserve_progress_and_policy_funded_amount():
                   scheduled_for=hh.as_of,
                   mandate=_standing_mandate(),
                   policy_id="pol_emergency", reserve_id="res_emergency")
+    hh.policies[l.policy_id].mandate = l.mandate
     eng.groups["g1"] = TransferGroup(id="g1", legs=[l])
     l.transition(LegState.AUTHORIZED, "standing mandate")
     eng.execute(l)
@@ -606,34 +608,45 @@ def test_grounding_does_not_accept_a_negative_figure_against_positive_evidence()
 # authorize policies and execute simulated payments without signing in. The
 # authorization endpoint assigns the caller the identity user_primary."
 #
-# This is a PARTIAL hardening, not full authentication -- there is still no
-# login or session anywhere in the app (that is real infrastructure and
-# remains future work). What is fixed here is narrower: the endpoint no
-# longer accepts an anonymous request and silently stamps a hardcoded
-# identity onto the result; the caller must now say who they are, and that
-# identity is checked against the household's actual members.
+# Hosted authentication now verifies an opaque session and CSRF token. The
+# authorizing identity comes only from that session, never from request data.
 
 @pytest.fixture
 def client():
-    from fastapi.testclient import TestClient
-    from finpilot.api.app import app
-    return TestClient(app)
+    from tests.api_support import authenticated_client
+    with authenticated_client() as client:
+        yield client
 
 
-def test_authorize_requires_an_authorized_by_identity(client):
-    r = client.post("/api/policies/pol_insurance/authorize")
-    assert r.status_code == 422  # missing required parameter, not silently defaulted
+def test_authorize_requires_a_signed_in_identity(client):
+    client.cookies.clear()
+    response = client.post("/api/policies/pol_insurance/authorize",
+        json={"mode": "standing", "per_run_cap": "2500"})
+    assert response.status_code == 401
 
 
-def test_authorize_rejects_an_identity_the_household_does_not_recognize(client):
-    r = client.post("/api/policies/pol_insurance/authorize",
-                    params={"authorized_by": "someone_who_never_signed_in"})
-    assert r.status_code == 401
+def test_authorize_rejects_a_missing_csrf_token(client):
+    response = client.post("/api/policies/pol_insurance/authorize",
+        json={"mode": "standing", "per_run_cap": "2500"},
+        headers={"X-CSRF-Token": ""})
+    assert response.status_code == 403
 
 
-def test_authorize_accepts_and_records_a_real_household_member(client):
-    r = client.post("/api/policies/pol_utilities/authorize",
-                    params={"authorized_by": "user_partner"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["authorized_by"] == "user_partner"  # not hardcoded to user_primary
+def test_authorize_rejects_a_forged_request_identity(client):
+    response = client.post("/api/policies/pol_insurance/authorize",
+        json={"mode": "standing", "per_run_cap": "2500",
+              "authorized_by": "someone_who_never_signed_in"})
+    assert response.status_code == 422
+
+
+def test_authorize_records_the_session_member_and_only_the_selected_rule(client):
+    from tests.api_support import read_workspace
+    response = client.post("/api/policies/pol_utilities/authorize",
+        json={"mode": "standing", "per_run_cap": "2500"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["authorized_by"] == client.identity["user"]["id"]
+    household = read_workspace(client).household
+    assert household.policies["pol_utilities"].mandate.authorized_by == client.principal.user_id
+    assert household.policies["pol_utilities"].mandate.active
+    assert not household.policies["pol_insurance"].mandate.active

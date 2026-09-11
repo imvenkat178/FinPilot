@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
@@ -268,6 +268,7 @@ class Transaction:
     transfer_group_id: Optional[str] = None
     linked_tx_id: Optional[str] = None          # refund -> original charge
     user_corrected: bool = False
+    balance_already_reflected: bool = False
 
     @property
     def counts_as_income(self) -> bool:
@@ -276,7 +277,8 @@ class Transaction:
 
     @property
     def counts_as_spending(self) -> bool:
-        return self.kind in (TxKind.PURCHASE, TxKind.FEE) and self.amount.is_negative
+        return (self.kind in (TxKind.PURCHASE, TxKind.FEE) and self.amount.is_negative
+                and self.state != TxState.REVERSED)
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +344,39 @@ class Bill:
     provenance: Provenance = field(default_factory=Provenance)
     # BN01: installment plans are obligations even though no biller statements
     installment_provider: Optional[str] = None
+
+    def occurrence_id(self, when: date) -> str:
+        return f"bill:{self.id}:{when.isoformat()}"
+
+
+@dataclass
+class BillOccurrence:
+    """One dated obligation, shared by planning and every payment route.
+
+    Funded means the source was debited; paid means the creditor confirmed
+    application. Neither changes the next recurrence of the bill.
+    """
+    id: str = ""
+    bill_id: str = ""
+    due_date: date = field(default_factory=date.today)
+    amount: Money = field(default_factory=lambda: Money.zero())
+    funded: Money = field(default_factory=lambda: Money.zero())
+    paid: Money = field(default_factory=lambda: Money.zero())
+
+    @property
+    def remaining(self) -> Money:
+        return (self.amount - self.paid).clamp_min_zero()
+
+    @property
+    def cash_remaining(self) -> Money:
+        return (self.amount - self.funded).clamp_min_zero()
+
+    def to_json(self) -> dict:
+        return {"id": self.id, "bill_id": self.bill_id,
+                "due_date": self.due_date.isoformat(), "amount": self.amount.to_json(),
+                "funded": self.funded.to_json(), "paid": self.paid.to_json(),
+                "remaining": self.remaining.to_json(),
+                "cash_remaining": self.cash_remaining.to_json()}
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +703,35 @@ class RecurringPolicy:
 
     # funded-to-date within the current monthly period (EX02/SC51)
     funded_this_period: Money = field(default_factory=lambda: Money.zero())
+    bill_id: Optional[str] = None
+    funded_period: Optional[str] = None
+    funded_by_period: dict[str, Money] = field(default_factory=dict)
+    skipped_dates: list[date] = field(default_factory=list)
+
+    def funding_for_period(self, when: date, legacy_as_of: Optional[date] = None) -> Money:
+        key = when.strftime("%Y-%m")
+        if key in self.funded_by_period:
+            return self.funded_by_period[key]
+        legacy_key = self.funded_period or (
+            legacy_as_of.strftime("%Y-%m") if legacy_as_of else None)
+        return self.funded_this_period if key == legacy_key else Money.zero(self.amount.currency)
+
+    def record_funding(self, amount: Money, when: date,
+                       legacy_as_of: Optional[date] = None) -> None:
+        key = when.strftime("%Y-%m")
+        self.funded_by_period[key] = self.funding_for_period(when, legacy_as_of) + amount
+        if self.funded_period is None or key >= self.funded_period:
+            self.funded_period = key
+            self.funded_this_period = self.funded_by_period[key]
+
+    def reverse_funding(self, amount: Money, when: date,
+                        legacy_as_of: Optional[date] = None) -> None:
+        key = when.strftime("%Y-%m")
+        self.funded_by_period[key] = (
+            self.funding_for_period(when, legacy_as_of) - amount).clamp_min_zero()
+        if self.funded_period == key or self.funded_period is None:
+            self.funded_period = key
+            self.funded_this_period = self.funded_by_period[key]
 
     @property
     def is_required(self) -> bool:
@@ -706,6 +770,83 @@ class Household:
     transactions: list[Transaction] = field(default_factory=list)
     consents: list[ConsentGrant] = field(default_factory=list)
     as_of: date = field(default_factory=date.today)
+    bill_occurrences: dict[str, BillOccurrence] = field(default_factory=dict)
+    # Hosted households follow the calendar; fixtures retain their explicit date.
+    live_dates: bool = False
+    # Assigned only at workspace creation; sample balances are fictional.
+    payment_sandbox: bool = False
+
+    def bill_occurrence(self, bill: Bill, when: date, *, persist: bool = False) -> BillOccurrence:
+        key = bill.occurrence_id(when)
+        occurrence = self.bill_occurrences.get(key)
+        if occurrence is None:
+            occurrence = BillOccurrence(
+                id=key, bill_id=bill.id, due_date=when, amount=bill.amount,
+                funded=Money.zero(bill.amount.currency), paid=Money.zero(bill.amount.currency))
+            if persist:
+                self.bill_occurrences[key] = occurrence
+        return occurrence
+
+    def bill_dates(self, bill: Bill, start: date, end: date) -> list[date]:
+        dates = set(bill.schedule.occurrences(start, end) if bill.schedule else
+                    ([bill.due_date] if start <= bill.due_date <= end else []))
+        # A known, reopened obligation remains visible after its original due
+        # date. It does not become a new recurring bill or disappear on return.
+        dates.update(occ.due_date for occ in self.bill_occurrences.values()
+                     if occ.bill_id == bill.id and occ.due_date < start
+                     and occ.remaining.is_positive)
+        return sorted(dates)
+
+    def bill_for_policy(self, policy: RecurringPolicy) -> Optional[Bill]:
+        if policy.purpose not in (PolicyPurpose.BILL, PolicyPurpose.REQUIRED_DEBT,
+                                  PolicyPurpose.CARD_STATEMENT):
+            return None
+        if policy.bill_id:
+            bill = self.bills.get(policy.bill_id)
+            return bill if bill and bill.funding_account_id == policy.source_account_id else None
+        matches = [bill for bill in self.bills.values()
+                   if bill.funding_account_id == policy.source_account_id
+                   and bill.payee_account_id
+                   and bill.payee_account_id == policy.destination_account_id]
+        return matches[0] if len(matches) == 1 else None
+
+    def policy_trigger_dates(self, policy: RecurringPolicy, start: date, until: date) -> list[date]:
+        if policy.schedule:
+            return policy.schedule.occurrences(start, until)
+        if policy.cadence != Cadence.ON_INCOME:
+            return []
+        dates: set[date] = set()
+        source_ids = policy.eligible_income_source_ids or list(self.income_sources)
+        for source_id in source_ids:
+            source = self.income_sources.get(source_id)
+            if source and source.schedule:
+                dates.update(source.schedule.occurrences(start, until))
+        for event in self.income_events:
+            when = event.received_date or event.expected_date
+            if start <= when <= until and event.source_id in source_ids:
+                dates.add(when)
+        return sorted(dates)
+
+    def policy_skip_date(self, policy: RecurringPolicy) -> Optional[date]:
+        if not policy.skip_next:
+            return None
+        if policy.skipped_dates:
+            return max(policy.skipped_dates)
+        # Compatibility for an older saved boolean: reads remain pure. New
+        # commands persist the selected date with skip_policy_occurrence().
+        dates = self.policy_trigger_dates(policy, self.as_of, self.as_of + timedelta(days=730))
+        return dates[0] if dates else None
+
+    def policy_skipped_on(self, policy: RecurringPolicy, when: date) -> bool:
+        return when in policy.skipped_dates or self.policy_skip_date(policy) == when
+
+    def skip_policy_occurrence(self, policy: RecurringPolicy) -> Optional[date]:
+        dates = self.policy_trigger_dates(policy, self.as_of, self.as_of + timedelta(days=730))
+        when = next((d for d in dates if d not in policy.skipped_dates), None)
+        if when is not None:
+            policy.skipped_dates.append(when)
+            policy.skip_next = True
+        return when
 
     # -- lookups ---------------------------------------------------------
     def account(self, aid: str) -> Account:

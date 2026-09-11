@@ -205,6 +205,8 @@ class Account:
     capabilities: set[Capability] = field(default_factory=set)
     included_in_planning: bool = True
     connection_healthy: bool = True
+    connection_issue: str = ""        # human-readable reason when unhealthy
+    last_synced_at: Optional[datetime] = None
     provenance: Provenance = field(default_factory=Provenance)
 
     # underlying bank allocations for a sweep program (IN02)

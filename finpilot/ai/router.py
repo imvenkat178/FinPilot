@@ -187,9 +187,29 @@ INTENTS: list[Intent] = [
     Intent("automation", "get_automation_status", [
         r"\b(automation|recurring|standing|automatic) (rules?|transfers?|payments?)\b",
         r"\bwhat('?s| is) (set up|automated|running)\b",
-        r"\bupcoming (runs?|transfers?)\b", r"\bpause\b",
+        r"\b(rules?|automation)\b[^.?]{0,20}\b(set up|do i have|are running)\b",
+        r"\bpause\b",
         r"\bevery (month|payday|paycheck)\b",
     ], 3, AnswerState.AUTHORIZED),
+
+    Intent("account_connections", "get_account_connections", [
+        r"\b(connection|link)s? (health|status|issue|problem|broken|working)\b",
+        r"\bconnection (is|still)\b", r"\bstill (working|connected)\b",
+        r"\b(re-?authenticat|reconnect|re-?link)\w*\b",
+        r"\b(stale|not (updating|syncing|synced|refresh(ed|ing)?))\b",
+        r"\bis (my|the) [\w\s]{0,20}\bconnect(ed|ion)\b",
+        r"\bwhy (is|are) (my|the) (balance|account)s? (not updating|out of date|old)\b",
+    ], 5),
+
+    Intent("recurring_activity", "get_recurring_activity", [
+        r"\bupcoming (runs?|transfers?|occurrences?)\b",
+        r"\bnext (run|occurrence)\b",
+        r"\bwhen (will|does) (my|the|a) (rule|transfer|payment) (run|happen|trigger)\b",
+        r"\bwill (it|this|that|this rule|that rule|my \w+ (rule|payment|transfer)|"
+        r"the \w+ (rule|payment|transfer))\b[^.?]{0,20}\brun\b",
+        r"\bunresolved payments?\b",
+        r"\bwhich rules? (won'?t|will not) run\b",
+    ], 5),
 
     Intent("transfer_failure", "explain_transfer_outcome", [
         r"\bwhy (did|didn'?t|has|hasn'?t)\b.*\b(transfer|payment|run|go through)\b",
@@ -476,6 +496,34 @@ def template_answer(intent: str, result: dict) -> str:
                        + (f", capped at {_mv(r['per_run_cap'])} per run"
                           if r.get("per_run_cap") else ""))
         out.append(result["control"])
+        return "\n".join(out)
+
+    if intent == "account_connections":
+        unhealthy = result.get("unhealthy", [])
+        if not unhealthy:
+            return (f"All {len(result.get('accounts', []))} accounts have a healthy "
+                     "connection right now.")
+        out = [f"{len(unhealthy)} account connection(s) need attention:"]
+        for a in unhealthy:
+            when = f" (last synced {a['last_synced_at'][:10]})" if a.get("last_synced_at") else ""
+            out.append(f"  {a['name']}: {a['issue']}{when}"
+                       + (" — this affects figures that read from it."
+                          if a.get("affects_planning") else ""))
+        out.append(result["note"])
+        return "\n".join(out)
+
+    if intent == "recurring_activity":
+        runs = result.get("upcoming_runs", [])
+        blocked = result.get("will_not_run", [])
+        out = [f"{len(runs)} occurrence(s) in the next {result.get('horizon_days')} days, "
+               f"{len(blocked)} of them won't run as scheduled:"]
+        for r in blocked[:8]:
+            out.append(f"  {r['name']} on {r['date']}: {r['reason_if_not']}")
+        if not blocked:
+            out.append("Every upcoming occurrence is on track to run.")
+        for u in result.get("unresolved_policies", [])[:5]:
+            out.append(f"  Unresolved: {u['name']} — {u['issue']}")
+        out.append(result["note"])
         return "\n".join(out)
 
     if intent == "buffer":

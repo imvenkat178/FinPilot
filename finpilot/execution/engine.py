@@ -317,6 +317,33 @@ class ExecutionEngine:
         self.groups[grp.id] = grp
         return grp
 
+    def build_group_from_bill(self, bill_id: str, label: str = "") -> TransferGroup:
+        """A one-time payment (spec's Release-2 'one-time payments' capability,
+        Bills-and-calendar screen): pay a specific bill now, independent of
+        any paycheck allocation. Returns a draft leg -- building it never
+        moves money; `preflight`/`run_group` still gate everything the
+        allocation-sourced path gates (authorization, funds, capability)."""
+        bill = self.hh.bills.get(bill_id)
+        if bill is None:
+            raise KeyError(f"unknown bill: {bill_id}")
+        policy = next((p for p in self.hh.policies.values()
+                      if bill.payee_account_id
+                      and p.destination_account_id == bill.payee_account_id), None)
+        grp = TransferGroup(label=label or f"One-time payment: {bill.name}")
+        leg = PaymentLeg(
+            group_id=grp.id, kind=LegKind.BILL_PAYMENT,
+            source_account_id=bill.funding_account_id,
+            destination_account_id=bill.payee_account_id or "",
+            destination_label=bill.name, amount=bill.amount,
+            purpose=PolicyPurpose.BILL,
+            scheduled_for=bill.due_date,
+            entity_id=policy.entity_id if policy else None,
+            mandate=policy.mandate if policy else None,
+            optional=False)
+        grp.legs.append(leg)
+        self.groups[grp.id] = grp
+        return grp
+
     # -- preflight ------------------------------------------------------
     def preflight(self, leg: PaymentLeg) -> PreflightResult:
         """Section 21: recheck immediately before submission."""

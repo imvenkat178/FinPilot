@@ -100,6 +100,20 @@ def test_grounding_rejects_an_invented_date():
     assert not r.ok
 
 
+def test_grounding_accepts_a_bare_date_that_prefixes_a_full_timestamp():
+    """A tool may return a full ISO timestamp (e.g. last_synced_at); writing
+    just the calendar date from it is truthful, not an invented figure."""
+    payload = {"last_synced_at": "2026-07-31T09:00:00+00:00"}
+    r = check_grounding("Last synced 2026-07-31.", [payload])
+    assert r.ok
+
+
+def test_grounding_still_rejects_a_date_that_is_not_even_a_timestamp_prefix():
+    payload = {"last_synced_at": "2026-07-31T09:00:00+00:00"}
+    r = check_grounding("Last synced 2026-08-01.", [payload])
+    assert not r.ok
+
+
 def test_a_draft_with_no_figures_does_not_answer_a_numeric_question():
     thin = answer_is_substantive("It depends on your situation.",
                                  "You can spend $1,350.00 through 2026-09-24.")

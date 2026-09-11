@@ -33,7 +33,7 @@ probes those ports; with none reachable it answers from the calculators alone,
 correctly, and says so in the header.
 
 ```bash
-./run.sh test        # 133 tests
+./run.sh test        # 161 tests
 ./run.sh queries     # the user-query suite, end to end
 ```
 
@@ -102,6 +102,38 @@ priority order" means when a paycheck arrives short.
 
 That table above is Table 10 of the specification, reproduced to the cent by
 `tests/test_worked_examples.py`.
+
+---
+
+## First-production-release features added after the initial build
+
+The specification's own release plan (table 15) names a "First production
+release" tier beyond the core allocator: supported account connections,
+one-time payments, and recurring-rule activity with pause/skip — table 7's
+Screens list calls these out by name (Accounts' "connection health";
+Recurring rules and activity's "upcoming runs... pause and skip actions").
+These were gaps in the initial build, now closed:
+
+* **Account connection health** (`get_account_connections`, `/api/connections`) —
+  every account's link status and, when broken, the specific reason and
+  whether it affects a figure currently on screen. Never conflated with the
+  balance itself.
+* **Recurring-rule activity** (`get_recurring_activity`, `/api/recurring/activity`) —
+  every standing rule's actual upcoming dated occurrences (derived from the
+  paycheck schedule for `ON_INCOME` rules, exactly as the allocator reads them,
+  not a separate guess), whether each will run, and why not when it won't.
+* **Per-rule pause and skip-next** (`pause_recurring_policy`,
+  `skip_next_occurrence`) — pausing stops every future occurrence; skipping
+  stops only the very next one. Both differ from the existing pause-*all*
+  control, and both are enforced in the allocator itself
+  (`build_monthly_plan`), not only in the activity view.
+* **One-time bill payments** (`pay_bill_once`, `/api/bills/{id}/pay-once`) —
+  builds and preflights a payment for one specific bill outside the paycheck
+  plan. Building never sends money; a bill with no backing mandate is
+  honestly blocked rather than silently allowed through.
+
+`tests/test_new_features.py` (26 tests) covers all four end to end: the
+calculators, the allocator wiring, and the REST surface.
 
 ---
 
@@ -211,9 +243,10 @@ than noted:
 ```
 tests/test_worked_examples.py   45   every figure in §4, §6, §8, §14–§20
 tests/test_execution.py         19   lifecycle, idempotency, recovery, faults
-tests/test_ai.py                46   routing, grounding, injection, scope, states
+tests/test_ai.py                48   routing, grounding, injection, scope, states
 tests/test_core.py              23   money, dates, ledger integrity
-tests/query_suite.py            32   user questions end to end, with and without a model
+tests/test_new_features.py      26   connections, recurring activity, one-time payments
+tests/query_suite.py            34   user questions end to end, with and without a model
 ```
 
 The worked-example suite is the regression harness that matters: if one of those

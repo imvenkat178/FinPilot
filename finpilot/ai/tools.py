@@ -427,7 +427,12 @@ class ToolRegistry:
                          "as_of": a.provenance.as_of.isoformat() if a.provenance.as_of else None,
                          "verification": a.provenance.verification.value})
         gross_spendable = msum([a.spendable for a in self._accounts()], self.cur)
-        protected = self.hh.protected_reserves()
+        # Every total below is scoped to `self.scope` (None means full
+        # household access). A caller restricted to a subset of accounts
+        # must never see the whole household's cash, debt, assets or net
+        # worth just because these figures are computed from the Household
+        # aggregate rather than from the caller's own account list.
+        protected = self.hh.protected_reserves(account_ids=self.scope)
         spendable = (gross_spendable - protected).clamp_min_zero()
         reserves = [{"name": r.name, "account": self.hh.accounts[r.account_id].nickname
                      if r.account_id in self.hh.accounts else r.account_id,
@@ -438,12 +443,12 @@ class ToolRegistry:
         return {
             "as_of": self.hh.as_of.isoformat(),
             "household": self.hh.name,
-            "total_cash": self.hh.total_cash().to_json(),
+            "total_cash": self.hh.total_cash(account_ids=self.scope).to_json(),
             "protected_reserves": protected.to_json(),
             "spendable_now": spendable.to_json(),
-            "total_debt": self.hh.total_debt().to_json(),
-            "estimated_assets": self.hh.estimated_assets().to_json(),
-            "net_worth": self.hh.net_worth().to_json(),
+            "total_debt": self.hh.total_debt(account_ids=self.scope).to_json(),
+            "estimated_assets": self.hh.estimated_assets(account_ids=self.scope).to_json(),
+            "net_worth": self.hh.net_worth(account_ids=self.scope).to_json(),
             "by_type": {k: v.to_json() for k, v in by_type.items()},
             "accounts": rows,
             "reserves": reserves,
@@ -472,7 +477,8 @@ class ToolRegistry:
 
     def get_spending_allowance(self, days: int = 14,
                                account_id: Optional[str] = None) -> dict:
-        acct_id = account_id or (self.hh.checking[0].id if self.hh.checking else None)
+        acct_id = account_id or next((a.id for a in self.hh.checking
+                                      if self._in_scope(a.id)), None)
         if not acct_id or not self._in_scope(acct_id):
             return {"error": "no checking account in scope"}
         led = LedgerEngine(self.hh)
@@ -480,7 +486,8 @@ class ToolRegistry:
 
     def get_cash_forecast(self, account_id: Optional[str] = None,
                           days: int = 45) -> dict:
-        acct_id = account_id or (self.hh.checking[0].id if self.hh.checking else None)
+        acct_id = account_id or next((a.id for a in self.hh.checking
+                                      if self._in_scope(a.id)), None)
         if not acct_id or not self._in_scope(acct_id):
             return {"error": "no account in scope"}
         led = LedgerEngine(self.hh)
@@ -495,6 +502,8 @@ class ToolRegistry:
         end = start + timedelta(days=days)
         rows = []
         for b in self.hh.bills.values():
+            if not self._in_scope(b.funding_account_id):
+                continue
             occ = b.schedule.occurrences(start, end) if b.schedule else \
                 ([b.due_date] if start <= b.due_date <= end else [])
             for d in occ:
@@ -514,7 +523,7 @@ class ToolRegistry:
     # ---- debt ---------------------------------------------------------
     def _household_debts(self) -> list[DebtSnapshot]:
         return [DebtSnapshot.from_liability(l) for l in self.hh.liabilities.values()
-                if l.balance.is_positive]
+                if l.balance.is_positive and self._in_scope(l.account_id)]
 
     def compare_debt_strategies(self, extra_payment: Optional[float] = None,
                                 use_worked_example: bool = False) -> dict:
@@ -549,8 +558,9 @@ class ToolRegistry:
             debts, required + Money(D(str(amount)), self.cur), [Strategy.HIGHEST_RATE])
         b, w = base.results[0], with_extra.results[0]
         led = LedgerEngine(self.hh)
-        allowance = (led.spending_allowance(self.hh.checking[0].id, 30)
-                     if self.hh.checking else None)
+        in_scope_checking = [a for a in self.hh.checking if self._in_scope(a.id)]
+        allowance = (led.spending_allowance(in_scope_checking[0].id, 30)
+                     if in_scope_checking else None)
         return {
             "extra_per_month": Money(D(str(amount)), self.cur).to_json(),
             "without_extra": {"months": b.months_to_clear,
@@ -572,7 +582,9 @@ class ToolRegistry:
                      if l.type == AccountType.MORTGAGE), None)
         if mort is None:
             return {"error": "no mortgage on file"}
-        cash = self.hh.total_cash()
+        if not self._in_scope(mort.account_id):
+            return {"error": "no mortgage on file"}
+        cash = self.hh.total_cash(account_ids=self.scope)
         scen = mortgage_scenarios(
             mort.balance, mort.apr, mort.remaining_term_months or 240,
             mort.minimum_payment,
@@ -591,7 +603,7 @@ class ToolRegistry:
                                   ) -> dict:
         mort = next((l for l in self.hh.liabilities.values()
                      if l.type == AccountType.MORTGAGE), None)
-        if mort is None:
+        if mort is None or not self._in_scope(mort.account_id):
             return {"error": "no mortgage on file"}
         return biweekly_comparison(
             mort.balance, mort.apr, mort.minimum_payment,
@@ -612,8 +624,9 @@ class ToolRegistry:
         amt = Money(D(str(amount)), self.cur)
         led = LedgerEngine(self.hh)
         feasible = True
-        if self.hh.checking:
-            allowance = led.spending_allowance(self.hh.checking[0].id, 30)
+        in_scope_checking = [a for a in self.hh.checking if self._in_scope(a.id)]
+        if in_scope_checking:
+            allowance = led.spending_allowance(in_scope_checking[0].id, 30)
             feasible = allowance.amount >= amt
         p = Purchase(amount=amt, merchant=merchant, category=category,
                      channel=Channel(channel), foreign=foreign,
@@ -650,7 +663,12 @@ class ToolRegistry:
     def check_utilization_timing(self, card_id: Optional[str] = None,
                                  payment: Optional[float] = None) -> dict:
         cards = [c for c in self.hh.cards.values() if self._in_scope(c.account_id)]
-        card = self.hh.cards.get(card_id) if card_id else (cards[0] if cards else None)
+        if card_id:
+            card = self.hh.cards.get(card_id)
+            if card is not None and not self._in_scope(card.account_id):
+                card = None
+        else:
+            card = cards[0] if cards else None
         if card is None:
             return {"error": "no card on file"}
         pay = Money(D(str(payment)), self.cur) if payment else card.current_balance
@@ -658,7 +676,8 @@ class ToolRegistry:
 
     # ---- liquidity -------------------------------------------------------
     def get_buffer(self, account_id: Optional[str] = None) -> dict:
-        acct_id = account_id or (self.hh.checking[0].id if self.hh.checking else None)
+        acct_id = account_id or next((a.id for a in self.hh.checking
+                                      if self._in_scope(a.id)), None)
         if not acct_id or not self._in_scope(acct_id):
             return {"error": "no account in scope"}
         return BufferEngine(self.hh).for_account(acct_id).to_json()
@@ -666,7 +685,8 @@ class ToolRegistry:
     def assess_sweep_move(self, amount: float, hold_days: int = 30,
                           destination_apy: Optional[float] = None,
                           transfer_fee: float = 0.0) -> dict:
-        chk = self.hh.checking[0] if self.hh.checking else None
+        in_scope_checking = [a for a in self.hh.checking if self._in_scope(a.id)]
+        chk = in_scope_checking[0] if in_scope_checking else None
         sav = next((a for a in self.hh.accounts.values()
                     if a.type == AccountType.SAVINGS and self._in_scope(a.id)), None)
         if not chk or not sav:
@@ -700,7 +720,7 @@ class ToolRegistry:
                                debt_apr: float = 0.0, cash_apy: Optional[float] = None,
                                accrues_daily: bool = True) -> dict:
         sav = next((a for a in self.hh.accounts.values()
-                    if a.type == AccountType.SAVINGS), None)
+                    if a.type == AccountType.SAVINGS and self._in_scope(a.id)), None)
         apy = D(str(cash_apy)) if cash_apy is not None else (sav.apy if sav else D("0"))
         d = date.fromisoformat(due_date)
         return compare_timing("Payment", Money(D(str(amount)), self.cur), d,
@@ -712,13 +732,13 @@ class ToolRegistry:
     def compare_savings_vs_debt(self, amount: float, horizon_days: int = 365) -> dict:
         options = []
         for l in self.hh.liabilities.values():
-            if not l.balance.is_positive:
+            if not l.balance.is_positive or not self._in_scope(l.account_id):
                 continue
             options.append((l.name, l.apr, l.tax_deductible_interest))
         if not options:
             return {"error": "no eligible debt on file"}
         sav = next((a for a in self.hh.accounts.values()
-                    if a.type == AccountType.SAVINGS), None)
+                    if a.type == AccountType.SAVINGS and self._in_scope(a.id)), None)
         apy = sav.apy if sav and sav.apy else D("0.04")
         cmp_ = compare_savings_vs_debt(Money(D(str(amount)), self.cur), apy,
                                        options, self.tax, horizon_days)
@@ -766,6 +786,8 @@ class ToolRegistry:
     def get_automation_status(self) -> dict:
         rows = []
         for p in self.hh.policies_sorted():
+            if not self._in_scope(p.destination_account_id):
+                continue
             m = p.mandate
             rows.append({
                 "id": p.id, "name": p.name, "purpose": p.purpose.value,
@@ -829,7 +851,7 @@ class ToolRegistry:
 
     def pause_recurring_policy(self, policy_id: str, paused: bool = True) -> dict:
         pol = self.hh.policies.get(policy_id)
-        if pol is None:
+        if pol is None or not self._in_scope(pol.destination_account_id):
             return {"error": f"unknown policy: {policy_id}"}
         pol.paused = paused
         return {
@@ -843,7 +865,7 @@ class ToolRegistry:
 
     def skip_next_occurrence(self, policy_id: str) -> dict:
         pol = self.hh.policies.get(policy_id)
-        if pol is None:
+        if pol is None or not self._in_scope(pol.destination_account_id):
             return {"error": f"unknown policy: {policy_id}"}
         pol.skip_next = True
         return {
@@ -854,7 +876,7 @@ class ToolRegistry:
 
     def pay_bill_once(self, bill_id: str) -> dict:
         bill = self.hh.bills.get(bill_id)
-        if bill is None:
+        if bill is None or not self._in_scope(bill.funding_account_id):
             return {"error": f"unknown bill: {bill_id}"}
         if not self.execution:
             return {"error": "no execution engine attached"}
@@ -875,7 +897,13 @@ class ToolRegistry:
     def explain_transfer_outcome(self, leg_id: Optional[str] = None) -> dict:
         if not self.execution:
             return {"error": "no execution engine attached"}
-        legs = [l for g in self.execution.groups.values() for l in g.legs]
+        # Scoped like every other tool: a leg touching an account outside
+        # this caller's permission scope is invisible here, on either side
+        # of the transfer, and an explicit leg_id cannot be used to reach
+        # around that.
+        legs = [l for g in self.execution.groups.values() for l in g.legs
+                if self._in_scope(l.source_account_id)
+                or self._in_scope(l.destination_account_id)]
         target = next((l for l in legs if l.id == leg_id), None) if leg_id else None
         if target is None:
             problems = [l for l in legs if l.state.value in
@@ -896,13 +924,23 @@ class ToolRegistry:
         }
 
     def stress_income_loss(self, months: int = 1) -> dict:
-        monthly_income = msum([e.effective_amount for e in self.hh.income_events],
-                              self.cur)
-        required = msum([b.amount for b in self.hh.bills.values() if b.required],
+        # Scoped the same way as every other total here: a caller restricted
+        # to a subset of accounts must not see income, bills or reserves
+        # tied to accounts outside that scope, any more than it can see
+        # those accounts' balances directly.
+        def _income_in_scope(ev) -> bool:
+            src = self.hh.income_sources.get(ev.source_id)
+            return src is None or self._in_scope(src.deposit_account_id)
+
+        monthly_income = msum([e.effective_amount for e in self.hh.income_events
+                               if _income_in_scope(e)], self.cur)
+        required = msum([b.amount for b in self.hh.bills.values()
+                         if b.required and self._in_scope(b.funding_account_id)],
                         self.cur)
         reserves = msum([r.funded for r in self.hh.reserves.values()
-                         if r.purpose.value == "emergency"], self.cur)
-        cash = self.hh.total_cash()
+                         if r.purpose.value == "emergency" and self._in_scope(r.account_id)],
+                        self.cur)
+        cash = self.hh.total_cash(account_ids=self.scope)
         gap_per_month = (required - Money.zero(self.cur))
         total_need = gap_per_month * months
         runway_months = int((cash.amount / required.amount)) if required.is_positive else 0

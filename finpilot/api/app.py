@@ -207,26 +207,48 @@ def create_policy(p: PolicyIn, household: str = "demo"):
 
 
 @app.post("/api/policies/{policy_id}/authorize")
-def authorize_policy(policy_id: str, mode: str = "standing",
+def authorize_policy(policy_id: str, authorized_by: str, mode: str = "standing",
                      per_run_cap: Optional[float] = None,
                      household: str = "demo"):
+    """PARTIAL HARDENING, not full authentication. There is no login or
+    session anywhere in this application yet -- that is real infrastructure
+    (credentials, sessions, tokens) and remains future work. What this
+    closes is narrower but was a genuine hole: the endpoint used to accept
+    any anonymous request and silently attribute the resulting authorization
+    to a hardcoded "user_primary", regardless of who -- or whether anyone
+    identifiable -- actually called it. Now the caller must name who they
+    are, and that name is checked against the household's actual members
+    rather than accepted and stamped blindly. This does not prove the
+    caller IS that person (nothing here verifies a password or a session),
+    so it is not a substitute for real authentication; it only removes the
+    silent default and refuses an identity the household does not
+    recognize at all."""
     from ..models import now as _now
     hh = state.households[household]
     pol = hh.policies.get(policy_id)
     if pol is None:
         raise HTTPException(404, "unknown policy")
+    if not authorized_by or authorized_by not in hh.members:
+        raise HTTPException(
+            401, f"unrecognized authorizing identity: {authorized_by!r}. "
+                 f"Must be one of this household's members: {hh.members}.")
     pol.mandate.mode = AuthorizationMode(mode)
     pol.mandate.authorized_at = _now()
-    pol.mandate.authorized_by = "user_primary"
+    pol.mandate.authorized_by = authorized_by
     if per_run_cap:
         pol.mandate.per_run_cap = Money(D(str(per_run_cap)), hh.base_currency)
     return ok({"policy": policy_id, "mode": pol.mandate.mode.value,
                "active": pol.mandate.active,
+               "authorized_by": pol.mandate.authorized_by,
                "per_run_cap": pol.mandate.per_run_cap.to_json()
                if pol.mandate.per_run_cap else None,
                "note": "A valid standing authorization runs ordinary eligible "
                        "occurrences without asking again. Changing the destination "
-                       "or widening authority requires a new authorization."})
+                       "or widening authority requires a new authorization. "
+                       "This confirms the authorizing identity is a recognized "
+                       "household member; it does not yet verify a password or "
+                       "session for that member -- real sign-in is still future "
+                       "work."})
 
 
 @app.post("/api/policies/{policy_id}/pause")

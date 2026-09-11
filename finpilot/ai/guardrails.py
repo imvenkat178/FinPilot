@@ -59,13 +59,27 @@ _SAFE = {"0", "0.00", "1", "2", "3", "100"}
 
 
 def _norm_money(tok: str) -> str:
-    t = re.sub(r"[^\d.]", "", tok)
-    if not t:
+    # The sign must survive normalization. Stripping every non-digit
+    # character (the previous behaviour) discarded a leading "-" or "−"
+    # along with currency symbols and commas, so "-$500.00" (owed, a debt,
+    # a negative balance) and "$500.00" (an asset, a positive balance)
+    # both normalized to the same "500" -- meaning grounding treated a
+    # positive figure in the answer as confirmed by a negative figure of
+    # the same magnitude anywhere in the tool output, and vice versa. A
+    # figure's sign is part of its meaning here (a payment that reduced a
+    # balance vs. one that increased it, an amount owed vs. an amount
+    # available), so it cannot be normalized away.
+    t = tok.strip()
+    negative = t.startswith("-") or t.startswith("−")
+    digits = re.sub(r"[^\d.]", "", t)
+    if not digits:
         return ""
     try:
-        d = Decimal(t)
+        d = Decimal(digits)
     except InvalidOperation:
         return ""
+    if negative:
+        d = -d
     return str(d.normalize())
 
 

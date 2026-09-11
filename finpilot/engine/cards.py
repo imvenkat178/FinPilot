@@ -204,7 +204,15 @@ def evaluate_card(card: Card, purchase: Purchase) -> CardOption:
         if rule.requires_activation and not rule.activated:
             exclusions.append("Category requires activation that is not confirmed")
     else:
-        exclusions.append(f"No {purchase.category} rule on this card; base rate applies")
+        # No category-specific rule is normal, not a disqualifier: the card
+        # still earns its base rate on the full purchase (bonus_portion=0,
+        # base_portion=purchase.amount was already set above). A card that
+        # earns 2% on everything must not be excluded just because it has no
+        # rideshare-specific rule -- that was the bug: this note used to live
+        # in `exclusions`, which silently dropped every base-rate card from
+        # `usable` in rank_cards regardless of the `eligible` flag.
+        conditions.append(f"No {purchase.category}-specific rule on this card; "
+                          "earns the base rate instead.")
 
     units = (bonus_portion.amount * applied + base_portion.amount * base.rate)
     reward_value = Money(units * card.point_value / Decimal("0.01") * Decimal("0.01"), cur).round() \
@@ -258,7 +266,7 @@ def evaluate_card(card: Card, purchase: Purchase) -> CardOption:
 
     return CardOption(
         card_id=card.id, nickname=card.nickname, mask=card.mask,
-        eligible=not exclusions or rule is not None,
+        eligible=not exclusions,
         reward_value=reward_value, applied_rate=applied,
         bonus_portion=bonus_portion, base_portion=base_portion,
         cap_remaining_before=cap_before, processing_fee=processing_fee,

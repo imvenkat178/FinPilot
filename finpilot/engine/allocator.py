@@ -228,20 +228,26 @@ class AllocationEngine:
     # ------------------------------------------------------------------
     # Monthly plan
     # ------------------------------------------------------------------
-    def month_income_dates(self, year: int, month: int) -> list[tuple[date, Money]]:
-        """Expected income events in a month, in date order."""
+    def month_income_dates(self, year: int, month: int
+                           ) -> list[tuple[date, Money, Optional[IncomeEvent]]]:
+        """Expected income events in a month, in date order.
+
+        Returns each event's own identity alongside its date and amount --
+        two events can share a date (a salary and a same-day bonus), and a
+        caller that re-looks an event up by date alone would find only the
+        first match for both and silently process it twice."""
         first = date(year, month, 1)
         last = date(year, month, calendar.monthrange(year, month)[1])
-        events: list[tuple[date, Money]] = []
+        events: list[tuple[date, Money, Optional[IncomeEvent]]] = []
         for ev in self.hh.income_events:
             d = ev.received_date or ev.expected_date
             if first <= d <= last:
-                events.append((d, ev.effective_amount))
+                events.append((d, ev.effective_amount, ev))
         if not events:
             for src in self.hh.income_sources.values():
                 if src.schedule:
                     for d in src.schedule.occurrences(first, last):
-                        events.append((d, src.net_amount))
+                        events.append((d, src.net_amount, None))
         return sorted(events, key=lambda t: t[0])
 
     def _policy_monthly_target(self, p: RecurringPolicy, monthly_income: Money,
@@ -293,7 +299,7 @@ class AllocationEngine:
 
     def build_monthly_plan(self, year: int, month: int) -> MonthlyPlan:
         income_events = self.month_income_dates(year, month)
-        monthly_income = msum([a for _, a in income_events], self.cur)
+        monthly_income = msum([a for _, a, _ in income_events], self.cur)
 
         # committed = required + protected, needed as the base for surplus rules
         committed = Money.zero(self.cur)
@@ -334,7 +340,7 @@ class AllocationEngine:
             available = available + carry_in_cash
 
         if next_income_date is None:
-            later = [d for d, _ in self.month_income_dates(plan.year, plan.month)
+            later = [d for d, _, _ in self.month_income_dates(plan.year, plan.month)
                      if d > pay_date]
             next_income_date = later[0] if later else None
 
@@ -478,9 +484,11 @@ class AllocationEngine:
         plan = self.build_monthly_plan(year, month)
         events = self.month_income_dates(year, month)
         runs: list[PaycheckAllocation] = []
-        for i, (d, amt) in enumerate(events):
-            ev = next((e for e in self.hh.income_events
-                       if (e.received_date or e.expected_date) == d), None)
+        for i, (d, amt, ev) in enumerate(events):
+            # `ev` is this exact event's own identity, from month_income_dates
+            # itself -- never re-looked-up by date, which would silently
+            # collapse two same-day events (e.g. a salary and a same-day
+            # bonus) onto whichever one happens to sort first.
             if ev is None:
                 ev = IncomeEvent(source_id="", expected_date=d, expected_amount=amt)
             nxt = events[i + 1][0] if i + 1 < len(events) else None
@@ -517,7 +525,7 @@ class AllocationEngine:
         return "Required before the next deposit."
 
     def _paychecks_after(self, plan: MonthlyPlan, pay_date: date) -> int:
-        return len([d for d, _ in self.month_income_dates(plan.year, plan.month)
+        return len([d for d, _, _ in self.month_income_dates(plan.year, plan.month)
                     if d > pay_date])
 
     def _share_for_this_paycheck(self, t: MonthlyTarget, after: int) -> Money:

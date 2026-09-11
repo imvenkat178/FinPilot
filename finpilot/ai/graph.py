@@ -363,28 +363,51 @@ class FinanceAgent:
 
 # ---------------------------------------------------------------------------
 
-_COMPLETION_CLAIMS = ("payment scheduled", "i have scheduled", "i've scheduled",
-                      "transfer sent", "i have sent", "i've sent", "i have paid",
-                      "i've paid", "has been paid", "money has been moved",
-                      "i moved", "i have transferred", "i've transferred",
-                      "successfully sent", "payment completed")
+# Two tiers, not one -- "I have sent the transfer" and "the payment is
+# completed" are different claims and need different evidence. Treating
+# them alike is exactly how a "processing" leg (dispatched, outcome not
+# yet known) was previously accepted as proof of "payment completed" (a
+# claim that the money has actually landed): the single combined check
+# below used to accept ANY of these states for ANY of these phrases.
+_IN_FLIGHT_CLAIMS = ("payment scheduled", "i have scheduled", "i've scheduled",
+                     "transfer sent", "i have sent", "i've sent",
+                     "i moved", "i have transferred", "i've transferred",
+                     "successfully sent")
+_SETTLED_CLAIMS = ("i have paid", "i've paid", "has been paid",
+                   "money has been moved", "payment completed")
+_COMPLETION_CLAIMS = _IN_FLIGHT_CLAIMS + _SETTLED_CLAIMS
+
+_IN_FLIGHT_STATES = ("\"submitted\"", "\"processing\"", "\"reconciled\"",
+                    "\"credited_by_biller\"", "\"funds_available\"")
+# A claim that the money has actually arrived / the obligation is settled
+# needs evidence the payment reached or passed that point -- "submitted" or
+# "processing" mean it was dispatched, not that it landed.
+_SETTLED_STATES = ("\"reconciled\"", "\"credited_by_biller\"", "\"funds_available\"")
 
 
 def _claims_completed_action(text: str, payloads: list[dict]) -> Optional[str]:
     """A response such as 'payment scheduled' is permitted only after the payment
-    service confirms that state."""
+    service confirms that state -- and 'payment completed' needs stronger
+    evidence than 'transfer sent' does, since one claims the money is in
+    flight and the other claims it has actually arrived."""
     low = (text or "").lower()
-    claimed = [c for c in _COMPLETION_CLAIMS if c in low]
-    if not claimed:
+    settled_claimed = [c for c in _SETTLED_CLAIMS if c in low]
+    in_flight_claimed = [c for c in _IN_FLIGHT_CLAIMS if c in low]
+    if not settled_claimed and not in_flight_claimed:
         return None
     blob = json.dumps(payloads, default=str).lower()
-    confirmed = any(k in blob for k in ("\"submitted\"", "\"processing\"",
-                                        "\"reconciled\"", "\"credited_by_biller\"",
-                                        "\"funds_available\""))
-    if confirmed:
-        return None
-    return (f"the draft claimed a completed action ({claimed[0]!r}) that no tool "
-            "result confirms")
+
+    if settled_claimed:
+        if not any(k in blob for k in _SETTLED_STATES):
+            return (f"the draft claimed a settled action ({settled_claimed[0]!r}) "
+                    "but no tool result shows the payment actually landed "
+                    "(only, at most, submitted/processing evidence)")
+    if in_flight_claimed:
+        if not any(k in blob for k in _IN_FLIGHT_STATES):
+            claimed = in_flight_claimed[0]
+            return (f"the draft claimed a completed action ({claimed!r}) that no "
+                    "tool result confirms")
+    return None
 
 
 def _slim(payload: dict) -> dict:

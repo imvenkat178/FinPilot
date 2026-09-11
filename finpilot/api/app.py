@@ -140,6 +140,16 @@ def buffer(account_id: Optional[str] = None, household: str = "demo"):
     return ok(state.use(household).get_buffer(account_id=account_id))
 
 
+@app.get("/api/connections")
+def connections(household: str = "demo"):
+    return ok(state.use(household).get_account_connections())
+
+
+@app.get("/api/recurring/activity")
+def recurring_activity(horizon_days: int = 60, household: str = "demo"):
+    return ok(state.use(household).get_recurring_activity(horizon_days=horizon_days))
+
+
 # ---------------------------------------------------------------------------
 # the paycheck plan -- the core of the product
 # ---------------------------------------------------------------------------
@@ -227,6 +237,22 @@ def pause_policy(policy_id: str, paused: bool = True, household: str = "demo"):
         raise HTTPException(404, "unknown policy")
     pol.paused = paused
     return ok({"policy": policy_id, "paused": pol.paused})
+
+
+@app.post("/api/policies/{policy_id}/skip-next")
+def skip_next_policy(policy_id: str, household: str = "demo"):
+    result = state.use(household).skip_next_occurrence(policy_id)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return ok(result)
+
+
+@app.post("/api/bills/{bill_id}/pay-once")
+def pay_bill_once(bill_id: str, household: str = "demo"):
+    result = state.use(household).pay_bill_once(bill_id)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return ok(result)
 
 
 # ---------------------------------------------------------------------------
@@ -450,5 +476,7 @@ def dashboard_data(household: str = "demo"):
         "coverage": reg.get_deposit_coverage(),
         "liquidity": reg.get_liquidity_tiers(),
         "automation": reg.get_automation_status(),
+        "connections": reg.get_account_connections(),
+        "recurring_activity": reg.get_recurring_activity(horizon_days=45),
         "llm": state.llm.health(),
     })

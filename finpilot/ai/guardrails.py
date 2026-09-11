@@ -132,7 +132,10 @@ def check_grounding(answer: str, payloads: Iterable[Any]) -> GroundingReport:
 
     for tok in _DATE.findall(answer):
         checked += 1
-        if tok not in allowed:
+        # a bare date is still grounded when it is the calendar-date prefix of
+        # a full timestamp the tool actually returned (e.g. answer says
+        # "last synced 2026-07-31", payload has "2026-07-31T09:00:00+00:00")
+        if tok not in allowed and not any(a.startswith(tok) for a in allowed):
             ungrounded.append(tok)
 
     for tok in _MONTHS.findall(answer):

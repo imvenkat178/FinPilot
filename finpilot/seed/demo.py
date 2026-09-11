@@ -8,7 +8,7 @@ All figures are fictional, as the source specification requires.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal as D
 
 from ..dates import BusinessDayRule, Cadence, Schedule
@@ -82,7 +82,12 @@ def demo_household() -> Household:
         institution_id="brk_halden", mask="7742",
         current=_m(184000), available=_m(0),
         liquidity_tier=LiquidityTier.INVESTMENT, protection=ProtectionType.SIPC,
-        capabilities={Capability.VIEW_BALANCE}, provenance=verified)
+        capabilities={Capability.VIEW_BALANCE}, provenance=verified,
+        # a demo connection-health scenario: the account is still visible from
+        # its last successful sync, but the link itself needs attention.
+        connection_healthy=False,
+        connection_issue="Requires re-authentication with Halden Retirement",
+        last_synced_at=datetime(2026, 7, 31, 9, 0, tzinfo=timezone.utc))
 
     # liability-side accounts
     card_a_acct = Account(id="acc_card_a", nickname="Everyday Rewards Card",

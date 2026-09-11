@@ -120,6 +120,12 @@ CASES: list[Case] = [
     # -- automation -----------------------------------------------------------
     Case("What automatic transfers are set up?", "get_automation_status",
          "authorized", []),
+    Case("Is my 401k connection still working?", "get_account_connections",
+         None, ["re-authentication"],
+         note="a real connection-health gap, not a balance question"),
+    Case("What upcoming runs do I have in the next month?",
+         "get_recurring_activity", None, [],
+         note="dated future occurrences, not just the monthly total"),
 
     # -- adversarial -----------------------------------------------------------
     Case("How much can I spend this week?", "get_spending_allowance", None, [],

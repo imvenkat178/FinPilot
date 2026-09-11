@@ -255,6 +255,18 @@ svg{display:block;width:100%;height:auto;overflow:visible}
     </section>
 
     <section class="card">
+      <h2>Account connections</h2>
+      <div class="sub" id="connsub"></div>
+      <div class="rows" id="conn"></div>
+    </section>
+
+    <section class="card">
+      <h2>Upcoming automated runs</h2>
+      <div class="sub" id="recsub"></div>
+      <div class="rows" id="rec"></div>
+    </section>
+
+    <section class="card">
       <h2>Ask about your money</h2>
       <div class="sub">Every figure comes from a calculation, never from the model.
         Answers that add a number the calculators did not produce are rejected
@@ -319,6 +331,8 @@ function renderAll(){
   renderDebt(d.debt);
   renderCoverage(d.coverage);
   renderAutomation(d.automation);
+  renderConnections(d.connections);
+  renderRecurringActivity(d.recurring_activity);
 }
 
 /* ---------------- hero stats ---------------- */
@@ -574,6 +588,48 @@ function renderAutomation(a){
         <small>${val(p.amount)>0?"priority "+p.priority:"target already met"}</small>
       </div></div>`).join("")
     || `<p class="empty">No rules configured.</p>`;
+}
+
+function renderConnections(c){
+  if(!c) return;
+  const bad = c.unhealthy_count||0;
+  $("#connsub").textContent = bad
+    ? `${bad} of ${c.accounts.length} need attention`
+    : `All ${c.accounts.length} accounts connected`;
+  const rows = bad ? c.accounts.filter(a=>!a.healthy) : c.accounts;
+  $("#conn").innerHTML = rows.map(a=>`
+    <div class="row"><div class="l">
+      <div class="n">${esc(a.name)}</div>
+      <div class="s">${esc(a.institution||"")}${a.last_synced_at?
+        ` · last synced ${esc(a.last_synced_at.slice(0,10))}`:""}</div></div>
+      <div class="v"><span class="chip ${a.healthy?"ok":"warn"}">
+        ${a.healthy?"connected":esc(a.issue||"needs attention")}</span></div></div>`
+  ).join("") || `<p class="empty">No accounts.</p>`;
+}
+
+function renderRecurringActivity(r){
+  if(!r) return;
+  const blocked = r.will_not_run||[];
+  $("#recsub").textContent =
+    `${r.upcoming_runs.length} occurrence(s) in the next ${r.horizon_days} days`
+    + (blocked.length ? ` · ${blocked.length} won't run as scheduled` : "");
+  const show = (blocked.length ? blocked : r.upcoming_runs).slice(0, 10);
+  $("#rec").innerHTML = show.map(u=>`
+    <div class="row"><div class="l">
+      <div class="n">${esc(u.name)}</div>
+      <div class="s">${esc(u.date)} · ${esc(u.amount_note)}
+        ${u.reason_if_not?` · ${esc(u.reason_if_not)}`:""}</div></div>
+      <div class="v"><span class="chip ${u.will_run?"ok":"warn"}">
+        ${u.will_run?"on track":"won't run"}</span></div></div>`
+  ).join("") || `<p class="empty">No upcoming occurrences.</p>`;
+  if(r.unresolved_policies && r.unresolved_policies.length){
+    $("#rec").innerHTML += r.unresolved_policies.map(u=>`
+      <div class="row"><div class="l">
+        <div class="n">${esc(u.name)}</div>
+        <div class="s">unresolved · ${esc(u.issue)}</div></div>
+        <div class="v"><span class="chip warn">needs authorization</span></div></div>`
+    ).join("");
+  }
 }
 
 /* ---------------- assistant ---------------- */

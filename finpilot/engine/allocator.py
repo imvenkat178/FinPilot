@@ -298,7 +298,7 @@ class AllocationEngine:
         # committed = required + protected, needed as the base for surplus rules
         committed = Money.zero(self.cur)
         for p in self.hh.policies_sorted():
-            if p.paused:
+            if p.paused or p.skip_next:
                 continue
             if p.is_required or p.is_protected_reserve:
                 committed = committed + self._policy_monthly_target(
@@ -306,7 +306,7 @@ class AllocationEngine:
 
         targets: list[MonthlyTarget] = []
         for p in self.hh.policies_sorted():
-            if p.paused:
+            if p.paused or p.skip_next:
                 continue
             tgt = self._policy_monthly_target(p, monthly_income, committed)
             if tgt.is_zero:

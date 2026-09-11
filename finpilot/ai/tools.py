@@ -26,6 +26,7 @@ from ..engine.debt import (DebtSnapshot, Strategy, biweekly_comparison,
 from ..engine.ledger import LedgerEngine
 from ..engine.liquidity import (BufferEngine, assess_sweep, classify_liquidity,
                                 compare_timing)
+from ..engine.recurring import RecurringActivityEngine
 from ..engine.tax import (TaxProfile, compare_savings_vs_debt,
                           interest_deduction_check)
 from ..models import AccountType, Confidence, Household, PolicyPurpose
@@ -335,6 +336,53 @@ class ToolRegistry:
                   "behind each, and anything unresolved.",
                   NO_ARGS, self.get_automation_status,
                   intents=("automation", "recurring", "rules", "scheduled"))
+
+        self._add("get_account_connections",
+                  "Connection health for every account -- last synced, and the "
+                  "specific reason when a link needs attention -- separate from "
+                  "the balances themselves.",
+                  NO_ARGS, self.get_account_connections,
+                  intents=("connection", "reconnect", "link", "sync", "reauthenticate",
+                            "stale", "not updating"))
+
+        self._add("get_recurring_activity",
+                  "Every standing rule's upcoming dated occurrences over the next "
+                  "N days, whether each will actually run, and why not when it "
+                  "won't -- paused, skipped, or missing authorization.",
+                  {"type": "object", "properties":
+                   {"horizon_days": {"type": "integer"}}, "required": []},
+                  self.get_recurring_activity,
+                  intents=("upcoming run", "next run", "when will", "will it run",
+                            "unresolved payment"))
+
+        self._add("pause_recurring_policy",
+                  "Pause or resume one standing rule by id, without touching any "
+                  "other rule or the global pause.",
+                  {"type": "object", "properties":
+                   {"policy_id": {"type": "string"}, "paused": {"type": "boolean"}},
+                   "required": ["policy_id"]},
+                  self.pause_recurring_policy, consequential=True,
+                  intents=("pause this", "stop this rule", "turn off", "resume this rule"))
+
+        self._add("skip_next_occurrence",
+                  "Skip only the very next scheduled occurrence of one rule; it "
+                  "resumes normally on the following one. Different from pausing, "
+                  "which stops every future occurrence until resumed.",
+                  {"type": "object", "properties":
+                   {"policy_id": {"type": "string"}}, "required": ["policy_id"]},
+                  self.skip_next_occurrence, consequential=True,
+                  intents=("skip next", "skip this one", "skip the next"))
+
+        self._add("pay_bill_once",
+                  "Build a one-time payment for a specific bill, independent of "
+                  "the paycheck plan. This only builds and preflights the payment "
+                  "-- it never sends money by itself; authorization and execution "
+                  "are separate, explicit steps.",
+                  {"type": "object", "properties":
+                   {"bill_id": {"type": "string"}}, "required": ["bill_id"]},
+                  self.pay_bill_once, consequential=True,
+                  intents=("pay this bill now", "one-time payment", "pay it once",
+                            "make a one time payment"))
 
         self._add("explain_transfer_outcome",
                   "Why a scheduled transfer did not run, naming the actual failed "
@@ -741,6 +789,88 @@ class ToolRegistry:
                 "control": ("You can pause any single rule, skip its next occurrence, "
                             "or pause all future runs. Pausing cannot recall a payment "
                             "already submitted.")}
+
+    def get_account_connections(self) -> dict:
+        rows = []
+        for a in self._accounts():
+            rows.append({
+                "id": a.id, "name": a.nickname, "institution": a.institution,
+                "healthy": a.connection_healthy,
+                "issue": a.connection_issue or None,
+                "last_synced_at": a.last_synced_at.isoformat() if a.last_synced_at else None,
+                "affects_planning": (not a.connection_healthy) and a.included_in_planning,
+            })
+        unhealthy = [r for r in rows if not r["healthy"]]
+        return {
+            "accounts": rows,
+            "unhealthy_count": len(unhealthy),
+            "unhealthy": unhealthy,
+            "note": ("A stale or broken connection only affects figures that "
+                     "read from that account; it does not silently disappear "
+                     "from a plan, and every affected estimate says so at a "
+                     "lower confidence rather than staying silent about it."),
+        }
+
+    def get_recurring_activity(self, horizon_days: int = 60) -> dict:
+        eng = RecurringActivityEngine(self.hh)
+        runs = eng.upcoming_runs(horizon_days=horizon_days)
+        runs = [r for r in runs if self._in_scope(
+            next((p.destination_account_id for p in self.hh.policies.values()
+                  if p.id == r.policy_id), ""))]
+        return {
+            "horizon_days": horizon_days,
+            "upcoming_runs": [r.to_json() for r in runs],
+            "will_not_run": [r.to_json() for r in runs if not r.will_run],
+            "unresolved_policies": eng.unresolved(),
+            "note": ("Each row is a dated occurrence this rule is scheduled to "
+                     "reach, not a payment already sent. Pausing a rule stops "
+                     "every future occurrence; skipping stops only the next one."),
+        }
+
+    def pause_recurring_policy(self, policy_id: str, paused: bool = True) -> dict:
+        pol = self.hh.policies.get(policy_id)
+        if pol is None:
+            return {"error": f"unknown policy: {policy_id}"}
+        pol.paused = paused
+        return {
+            "policy_id": policy_id, "name": pol.name, "paused": pol.paused,
+            "note": ("Paused now: no future occurrence of this rule runs until "
+                     "it is resumed. This does not touch any other rule, and "
+                     "cannot recall a payment already submitted."
+                     if paused else
+                     "Resumed: this rule's normal schedule applies again."),
+        }
+
+    def skip_next_occurrence(self, policy_id: str) -> dict:
+        pol = self.hh.policies.get(policy_id)
+        if pol is None:
+            return {"error": f"unknown policy: {policy_id}"}
+        pol.skip_next = True
+        return {
+            "policy_id": policy_id, "name": pol.name, "skip_next": True,
+            "note": ("Only the next occurrence of this rule is skipped; it "
+                     "resumes normally starting with the one after that."),
+        }
+
+    def pay_bill_once(self, bill_id: str) -> dict:
+        bill = self.hh.bills.get(bill_id)
+        if bill is None:
+            return {"error": f"unknown bill: {bill_id}"}
+        if not self.execution:
+            return {"error": "no execution engine attached"}
+        grp = self.execution.build_group_from_bill(bill_id)
+        leg = grp.legs[0]
+        pf = self.execution.preflight(leg)
+        return {
+            "group_id": grp.id, "leg": leg.to_json(),
+            "amount": leg.amount.to_json(), "bill": bill.name,
+            "due_date": bill.due_date.isoformat(),
+            "preflight": pf.to_json(),
+            "note": ("This only builds and checks a one-time payment; nothing "
+                     "has been sent. " +
+                     ("It is ready to authorize and run." if pf.ok else
+                      "It cannot run yet for the reason(s) above.")),
+        }
 
     def explain_transfer_outcome(self, leg_id: Optional[str] = None) -> dict:
         if not self.execution:

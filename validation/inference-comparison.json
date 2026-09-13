@@ -1,0 +1,31 @@
+{
+  "historical_baseline": {
+    "accepted": 90,
+    "total": 140,
+    "capabilities": 57,
+    "calls": 171,
+    "reported_tokens": 63924,
+    "completed_calls": 164,
+    "confirmed": 57,
+    "restored": 57,
+    "median_seconds": 5.3195,
+    "p95_seconds": 11.922,
+    "max_seconds": 12.078
+  },
+  "current": {
+    "accepted": 115,
+    "total": 140,
+    "capabilities": 77,
+    "calls": 140,
+    "reported_tokens": 33201,
+    "completed_calls": 115,
+    "confirmed": 67,
+    "restored": 67,
+    "median_seconds": 7.383,
+    "p95_seconds": 12.188,
+    "max_seconds": 12.563
+  },
+  "same_140_prompts": true,
+  "monetary_cost_measured": false,
+  "token_counts": "Provider-reported completed calls only; failed calls may have unreported work."
+}

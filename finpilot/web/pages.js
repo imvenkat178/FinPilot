@@ -228,7 +228,7 @@ function billCalendar() {
           .filter((o) => o.due_date === day)
           .map(
             (o) =>
-              `<button data-detail="bill:${esc(S.workspace.bills.find((b) => b.name === o.name)?.id)}" data-date="${day}">${esc(o.name)}<span>${money(o.amount)}</span></button>`,
+              `<button data-detail="bill:${esc(S.workspace.bills.find((b) => b.name === o.name)?.id)}" data-date="${day}">${esc(o.name)}<span>${money(o.amount, true)}</span></button>`,
           )
           .join("")}</div>`;
       },
@@ -421,7 +421,12 @@ export function protectionPage() {
     `<div class="content-grid">${panel("Deposit protection", c.buckets?.length ? c.buckets.map((b) => `<div class="coverage-row"><h3>${esc(b.institution_name)}</h3><p>${esc(human(b.category))} · ${esc(human(b.regime))}</p>${row("Deposits", money(b.total))}${row("Category limit", money(b.limit))}${row("Estimated uncovered", money(b.uncovered))}${val(b.via_sweep) > 0 ? row("Via sweep program", money(b.via_sweep)) : ""}</div>`).join("") : empty("No deposit groupings"), "", `${money(c.total_uncovered)} estimated uncovered`)}${panel("Tax profile", row("Federal marginal rate", pct(t.federal_marginal)) + row("State marginal rate", pct(t.state_marginal)) + row("Itemizes deductions", t.itemizes ? "Yes" : "No") + row("Verification", t.verified ? "Verified" : "Unverified") + note("Confirm tax assumptions before using a comparison.") + `<form id="tax-form" class="stack-form"><label>Amount to compare<input name="amount" type="number" min="1" max="100000000" value="1000" step="0.01" required></label><label>Comparison period<select name="days"><option value="365">One year</option><option value="180">Six months</option><option value="90">Three months</option></select></label><button class="button primary">Compare savings & debt</button></form><div id="tax-result"></div>`)}${panel("Liquidity by availability", (S.data.liquidity.tiers || []).map((t) => `<a class="item-row" href="#accounts/${esc(t.account_id || t.id || "")}"><span class="row-body"><span class="row-title">${esc(t.name)}</span><span class="row-sub">${esc(t.treatment)}</span></span><span class="row-end">${money(t.available)}<small>${esc(t.tier_label || human(t.tier))}</small></span></a>`).join(""))}${panel("Coverage assumptions", (c.caveats || []).map(note).join("") + evidence("Coverage rules and calculation", c))}</div>`
   );
 }
+export function assistantWorkspacePage() {
+  return heading("AI workspace", "Understand your money and review changes in one conversation.") +
+    '<div class="ai-workspace"><aside class="ai-workspace-sidebar"><button class="button primary" data-action="new-chat">New conversation</button><button class="button" data-workflow="library">Explore workflows</button><button class="button" data-action="knowledge-documents">Documents & sources</button><h2>Conversations</h2><div id="ai-conversation-list"><p class="muted">Loading conversations…</p></div></aside><div id="ai-workspace-chat"></div></div>';
+}
 export const pages = {
+  assistant: assistantWorkspacePage,
   overview,
   accounts: accountsPage,
   paychecks: paycheckPage,

@@ -1,0 +1,29 @@
+{
+  "application": "http://127.0.0.1:8100",
+  "environment": "fictional sample workspace",
+  "method": "interactive browser verification",
+  "layouts": [
+    "desktop",
+    "390x844 compact"
+  ],
+  "checks": [
+    "ten financial sections load",
+    "tax comparison renders authoritative results",
+    "compound account list and transaction search",
+    "bill amount exact preview and confirmation",
+    "Payments list preserves cents",
+    "confirmed receipt survives reload and drawer/workspace navigation",
+    "compact confirmation with no horizontal overflow",
+    "original document conversation and selection restored",
+    "document search and tax assumptions appear together"
+  ],
+  "console_errors": [],
+  "console_warnings": [],
+  "fictional_change_restored": true,
+  "final_bill_amount": "12.99",
+  "qa_conversation": "conv_7e98812d319546fd86ce7dba219540e5",
+  "limitations": [
+    "CSV browser upload was verified in the earlier implementation pass; not repeated in this pass",
+    "No live funds, provider credentials or external OAuth used"
+  ]
+}

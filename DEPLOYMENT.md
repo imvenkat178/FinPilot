@@ -100,10 +100,10 @@ The application works with calculator answers when no model is available. On Doc
 
 | Setting | Default | Bounds / effect |
 | --- | --- | --- |
-| `FINPILOT_LLM_TIMEOUT` | `12` seconds | 1â€“120 seconds; shared remaining inference budget across agent model calls. |
-| `FINPILOT_LLM_MAX_TOKENS` | `384` | 1â€“2,048 output tokens; lower values can lead to calculator fallback for incomplete explanations. |
-| `FINPILOT_LLM_HEALTH_TTL` | `15` seconds | 0â€“300 seconds; cached reachability observation. |
-| `FINPILOT_LLM_FAILURE_COOLDOWN` | `5` seconds | 0â€“60 seconds; skips repeated failing completions while retaining calculator answers. |
+| `FINPILOT_LLM_TIMEOUT` | `12` seconds | 1-120 seconds; shared remaining inference budget across agent model calls. |
+| `FINPILOT_LLM_MAX_TOKENS` | `384` | 1-2,048 output tokens; lower values can lead to calculator fallback for incomplete explanations. |
+| `FINPILOT_LLM_HEALTH_TTL` | `15` seconds | 0-300 seconds; cached reachability observation. |
+| `FINPILOT_LLM_FAILURE_COOLDOWN` | `5` seconds | 0-60 seconds; skips repeated failing completions while retaining calculator answers. |
 
 Configure model credentials at the operator layer. User accounts cannot change the shared model endpoint. Model inference is not instantaneous: budget exhaustion, malformed output, or failed financial checks return the deterministic answer instead. Financial figures still come from the same calculators.
 
@@ -111,8 +111,30 @@ Configure model credentials at the operator layer. User accounts cannot change t
 
 ```powershell
 .venv/Scripts/python.exe -m pytest tests/test_migrations.py tests/test_bank_linking.py tests/test_llm_runtime.py tests/test_ai.py -q
+node tests/bank_frontend.mjs
+node tests/assistant_frontend.mjs
 ```
 
-Migration tests cover SQLite upgrade, repeat upgrade, downgrade, second upgrade, exact comparison against the SQLAlchemy metadata, and PostgreSQL SQL compilation without a server. AI tests cover model health coalescing, nonblocking status reads, client shutdown, timeout/cooldown fallback, live-response verification, routing, and guarded execution parity.
+Migration tests cover SQLite upgrade, repeat upgrade, downgrade, second upgrade, exact comparison against the SQLAlchemy metadata, and PostgreSQL SQL compilation without a server. AI tests cover model health coalescing, nonblocking status reads, client shutdown, timeout/cooldown fallback, mocked-response verification, routing, and guarded execution parity.
 
 The scaffolding has not been deployed. Docker is not installed in the current workspace environment, so the image build and Compose startup have not been executed here. PostgreSQL DDL was compiled offline; a live PostgreSQL migration and restore rehearsal remain deployment checks. Test the image and actual target database before routing hosted user traffic to this deployment.
+
+
+## Conversations, documents and MCP
+
+Run `python -m alembic upgrade head` before deploying this release to a hosted database. Revisions `20260912_0003`, `20260912_0004` and `20260912_0005` add the document library, conversation generations and MCP credentials/grants. Development SQLite initialization creates missing tables automatically. Existing financial and answer records are preserved.
+
+Install the updated requirements (official MCP SDK, pypdf and python-multipart). Keep request upload limits at 2 MB or higher at the reverse proxy; FinPilot enforces its own 2 MB file limit. PDF processing requires permission to launch the same Python executable in an isolated worker process. Scanned PDFs need OCR outside this release. Database backups must include document text and conversation tables, and must be protected as private financial data.
+
+External MCP sources require `FINPILOT_MCP_SERVERS` and `FINPILOT_TOKEN_KEY`; the default source allowlist is empty. Follow [MCP.md](MCP.md) to configure exact approved HTTPS endpoints and read tools. Each user supplies their own provider credential. Interactive OAuth consent is not included; bearer-token and unauthenticated approved sources are supported. The FinPilot export bridge uses stdio and revocable application read grants. No external source or credentials have been provisioned by this code change.
+
+Verify a deployment with the normal regression suite plus `node tests/knowledge_frontend.mjs`. For local inference validation, run `python scripts/evaluate_knowledge.py` and `python scripts/evaluate_mcp_knowledge.py` against Ollama with `llama3.2:latest`; these use fictional, disposable workspaces. The second script tests actual SDK transport to a fixture provider and a real local-model answer, without an external provider account.
+
+
+## Reviewed workflow release
+
+Run the Alembic migration job through head before starting updated workers. Revisions 0006, 0007 and 0008 add durable action proposals/receipts, pending workflow state and conversation-owned CSV attachments. The release keeps existing financial APIs and conversations compatible. Do not run schema creation from production application workers.
+
+Include the full Python suite and all seven frontend suites in release validation. The workflow tests cover exact-version confirmation, stale previews, expiry, cancellation, separate workers, tenant/role checks, action receipts, private source ownership, actual MCP SDK fixtures and mocked bank failures. SQLite concurrency and compiled PostgreSQL DDL are local evidence only; run migration and concurrent-confirmation checks against the deployment PostgreSQL service before a hosted rollout.
+
+The model uses structured output through the configured local OpenAI-compatible endpoint. The default shared inference budget remains 12 seconds. Do not increase it merely to present diagnostic Llama results as normal-budget acceptance; consult AI_VALIDATION.md for separate measurements. Provider actions with outcome_unknown require inspection instead of an automatic retry. Real payments and transfers remain outside this release.

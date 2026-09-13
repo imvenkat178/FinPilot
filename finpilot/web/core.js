@@ -25,6 +25,7 @@ export const sections = [
   ["debt", "Debt & credit", "card"],
   ["rules", "Recurring rules", "repeat"],
   ["protection", "Tax & protection", "shield"],
+  ["assistant", "AI workspace", "spark"],
 ];
 export const groups = [
   {
@@ -167,6 +168,7 @@ export async function api(
   path,
   { method = "GET", body, signal, timeout = 30000 } = {},
 ) {
+  const multipart = typeof FormData !== "undefined" && body instanceof FormData;
   const controller = new AbortController();
   const userId = S.session?.user?.id;
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -176,12 +178,12 @@ export async function api(
     const r = await fetch(path, {
       method,
       headers: {
-        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(body && !multipart ? { "Content-Type": "application/json" } : {}),
         ...(method !== "GET" && S.session ? {"X-CSRF-Token": S.session.csrf_token} : {}),
         ...(method !== "GET" && S.revision !== null ? {"If-Match": String(S.revision)} : {}),
       },
       credentials: "same-origin",
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? (multipart ? body : JSON.stringify(body)) : undefined,
       signal: controller.signal,
     });
     const d = await r.json();
@@ -250,7 +252,7 @@ export function billRows(obligations, compact = false) {
     obligations
       .map((o) => {
         const b = billFor(o);
-        return `<button class="upcoming-row" data-detail="bill:${esc(b?.id || "")}" data-date="${esc(o.due_date)}"><span class="date-square">${dateLabel(o.due_date, { month: "short" }).toUpperCase()}<b>${dateLabel(o.due_date, { day: "numeric" })}</b></span><span class="row-body"><span class="row-title">${esc(o.name)}</span><span class="row-sub">${esc(compact ? human(o.execution_owner) : o.funding_account + " · " + human(o.execution_owner))}</span></span><span class="row-end">${money(o.amount)}</span>${icon("arrow")}</button>`;
+        return `<button class="upcoming-row" data-detail="bill:${esc(b?.id || "")}" data-date="${esc(o.due_date)}"><span class="date-square">${dateLabel(o.due_date, { month: "short" }).toUpperCase()}<b>${dateLabel(o.due_date, { day: "numeric" })}</b></span><span class="row-body"><span class="row-title">${esc(o.name)}</span><span class="row-sub">${esc(compact ? human(o.execution_owner) : o.funding_account + " · " + human(o.execution_owner))}</span></span><span class="row-end">${money(o.amount, true)}</span>${icon("arrow")}</button>`;
       })
       .join("") || empty("Nothing due in this window")
   );

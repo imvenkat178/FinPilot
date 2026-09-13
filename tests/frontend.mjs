@@ -6,6 +6,7 @@ import {
   access,
   accountType,
   money,
+  billRows,
 } from "../finpilot/web/core.js";
 import { pages, paymentActivity, rulesPage } from "../finpilot/web/pages.js";
 import { accountPage } from "../finpilot/web/accounts.js";
@@ -26,6 +27,7 @@ const get = async (path) => {
   get("/api/dashboard"),
   get("/api/workspace"),
 ]);
+assert.ok(billRows([{name:"Precision bill",amount:{amount:"13.49",currency:"USD"},due_date:"2026-10-05",funding_account:"Checking",execution_owner:"user"}]).includes("$13.49"),"Bill lists preserve the exact cents shown in review");
 globalThis.document = { documentElement: { dataset: { theme: "light" } } };
 const targets = new Set([
   "cash",

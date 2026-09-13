@@ -1,3 +1,5 @@
+import { handleWorkflowAction, handleWorkflowSubmit } from "./workflows.js";
+import { handleKnowledgeAction, handleKnowledgeSubmit, updateToolHelp } from "./knowledge.js";
 import { initializeBankLinking, mountBankConnections, handleBankAction } from "./connect.js";
 import { initializeExecution, handleExecutionClick, handleExecutionSubmit } from "./execution.js";
 import { initializeAuth, signOut } from "./auth.js";
@@ -29,12 +31,17 @@ import { accountPage } from "./accounts.js";
 import { detailContent, calculationResult } from "./details.js";
 import {
   initializeAssistant,
+  detachAssistantWorkspace,
+  mountAssistantLayout,
   updateAssistantContext,
   openAssistant,
   closeAssistant,
   resetAssistant,
   ask,
   showHistory,
+  backToConversation,
+  resumeConversation,
+  deleteConversation,
 } from "./assistant.js";
 let loadSequence = 0,
   toastTimer,
@@ -131,9 +138,11 @@ function render() {
     : title;
   document.title = `${S.accountId ? account(S.accountId)?.nickname || "Account" : title} — FinPilot`;
   $("main").dataset.page = S.page;
+  detachAssistantWorkspace();
   $("main").innerHTML = S.accountId ? accountPage() : pages[S.page]();
   document.querySelector(".notification i").hidden = reviews().length === 0;
   fillIcons();
+  mountAssistantLayout();
   updateAssistantContext();
   if (focusedTab) {
     [...document.querySelectorAll('[role="tab"]')]
@@ -219,6 +228,10 @@ async function busy(button, fn) {
 async function handleAction(el) {
   const name = el.dataset.action,
     id = el.dataset.id;
+  if (name?.startsWith("knowledge-")) return handleKnowledgeAction(el);
+  if (name === "chat-back") return backToConversation();
+  if (name === "chat-resume") return resumeConversation(id);
+  if (name === "chat-delete") return deleteConversation(id);
   if (name?.startsWith("bank-")) return handleBankAction(el);
   if (name === "logout") return signOut();
   if (name === "assistant") return openAssistant();
@@ -289,6 +302,7 @@ async function handleAction(el) {
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("button,a,[data-detail]");
   if (!el) return;
+  if (el.dataset.workflow) {e.preventDefault(); await handleWorkflowAction(el); return;}
   if (el.dataset.execution) {e.preventDefault(); await handleExecutionClick(el); return;}
   if (el.dataset.manage) {e.preventDefault(); await handleManagementClick(el); return;}
   if (el.dataset.detail) {
@@ -325,6 +339,9 @@ document.addEventListener("click", async (e) => {
     closeMenu();
   }
 });
+document.addEventListener("change", (e) => {
+  if (e.target.id === "mcp-tool") updateToolHelp();
+});
 document.addEventListener("input", (e) => {
   if (e.target.id === "account-search") {
     S.query = e.target.value;
@@ -341,9 +358,11 @@ document.addEventListener("input", (e) => {
   }
 });
 document.addEventListener("submit", async (e) => {
+  if(e.target.dataset.workflowForm) { e.preventDefault(); await handleWorkflowSubmit(e.target); return; }
   const form = e.target;
   if (["chat-form", "auth-form"].includes(form.id)) return;
   e.preventDefault();
+  if (form.dataset.knowledgeForm) {await handleKnowledgeSubmit(form); return;}
   if (form.dataset.executionForm) {await handleExecutionSubmit(form); return;}
   if (await handleManagementSubmit(form)) return;
   const values = Object.fromEntries(new FormData(form));
@@ -498,4 +517,10 @@ initializeAuth({
     $("detail-body").innerHTML = "";
     $("chat-log")?.replaceChildren();
   }
+});
+
+document.addEventListener("finpilot-chat-handoff", async (event) => {
+  const {name,args}=event.detail || {};
+  if(name==="connect_bank") openDetail("connections");
+  if(name==="import_transactions") await handleManagementClick({dataset:{manage:"import"+(args.account_id?":"+args.account_id:"")}});
 });

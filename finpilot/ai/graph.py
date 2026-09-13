@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -24,7 +25,7 @@ from typing import Annotated, Any, Optional, TypedDict
 from .guardrails import (AnswerState, GroundingReport, GuardVerdict, STATE_PREFIX,
                          SYSTEM_PROMPT, answer_is_substantive, check_grounding,
                          echoes_untrusted, fence_untrusted, scan_untrusted,
-                         scope_check)
+                         scope_check, spending_allowance_claim_error)
 from .llm import LLMUnavailable, LocalLLM
 from .router import RouteResult, route, template_answer
 from .tools import ToolRegistry
@@ -40,7 +41,12 @@ except Exception:                                    # pragma: no cover
 class ToolChoice(str, Enum):
     ROUTER = "router"      # deterministic selection (default, reliable on small models)
     MODEL = "model"        # model-driven tool calling
-    AUTO = "auto"          # model-driven when the model advertises tool support
+    AUTO = "auto"          # compatibility alias for ROUTER; no capability discovery
+
+
+_DETERMINISTIC_CLARIFICATIONS = {
+    "extra_payment_cadence_clarification", "card_location_clarification",
+}
 
 
 class AgentState(TypedDict, total=False):
@@ -105,11 +111,16 @@ Write the answer for the user now."""
 class FinanceAgent:
     def __init__(self, registry: ToolRegistry, llm: Optional[LocalLLM] = None,
                  tool_choice: ToolChoice = ToolChoice.ROUTER,
-                 max_tool_calls: int = 3, *, compile_graph: bool = True):
+                 max_tool_calls: int = 3, *, compile_graph: bool = True,
+                 default_account_id: Optional[str] = None,
+                 conversation_context: str = "", route_override: Optional[RouteResult] = None):
         self.tools = registry
         self.llm = llm or LocalLLM()
         self.tool_choice = tool_choice
         self.max_tool_calls = max_tool_calls
+        self.default_account_id = default_account_id
+        self.conversation_context = conversation_context
+        self.route_override = route_override
         self._graph = self._build() if LANGGRAPH and compile_graph else None
 
     # ------------------------------------------------------------------
@@ -150,7 +161,8 @@ class FinanceAgent:
         if s.get("answer"):
             return s
         trace = s.setdefault("trace", [])
-        r = route(s.get("question", ""))
+        r = self.route_override or route(s.get("question", ""))
+        r.arguments = self._context_arguments(r.tool, r.arguments)
         trace.append({"node": "classify", "intent": r.intent, "tool": r.tool,
                       "score": r.score, "alternatives": r.alternatives})
         return {**s, "route": r.to_json(), "trace": trace}
@@ -164,6 +176,13 @@ class FinanceAgent:
 
         if self._model_tool_calling(s):
             results = self._model_driven_tools(s, trace)
+        if results and results[0].get("_tool") != r["tool"]:
+            # A model may read useful related evidence, but a forecast payload
+            # cannot be passed to a debt template (or inherit its answer state).
+            trace.append({"node": "execute", "mode": "router_fallback",
+                          "reason": "model primary tool did not match the routed answer",
+                          "model_tool": results[0].get("_tool"), "tool": r["tool"]})
+            results.insert(0, self.tools.call(r["tool"], r["arguments"]))
         if not results:
             res = self.tools.call(r["tool"], r["arguments"])
             results = [res]
@@ -187,6 +206,11 @@ class FinanceAgent:
         primary = s["tool_results"][0] if s["tool_results"] else {}
         reference = template_answer(r["intent"], primary)
 
+        if r["intent"] in _DETERMINISTIC_CLARIFICATIONS:
+            trace.append({"node": "compose", "mode": "clarification"})
+            return {**s, "answer": reference, "draft": reference, "used_model": False,
+                    "trace": trace}
+
         if primary.get("error"):
             trace.append({"node": "compose", "mode": "error_passthrough"})
             return {**s, "answer": reference, "draft": reference, "used_model": False,
@@ -201,6 +225,11 @@ class FinanceAgent:
         payload = json.dumps(_slim(primary), separators=(",", ":"), default=str)[:6000]
         user = COMPOSE_USER.format(question=s["question"], payload=payload,
                                    reference=reference)
+        if r["intent"] == "spending_allowance":
+            user += ("\nThe spendable allowance is TOOL RESULT.amount, after subtracting protected reserves. "
+                     "TOOL RESULT.low_point_balance is the balance BEFORE that subtraction; never call it spendable.")
+        if self.conversation_context:
+            user += "\n\nPrevious conversation for language context only. Recalculate all figures from the current TOOL RESULT.\n" + fence_untrusted("prior conversation", self.conversation_context)
         if s.get("untrusted_context"):
             user = fence_untrusted("retrieved document", s["untrusted_context"]) \
                 + "\n\n" + user
@@ -230,6 +259,14 @@ class FinanceAgent:
         reference = template_answer(r["intent"], primary)
         draft = s.get("draft") or reference
 
+        if s.get("used_model") and r["intent"] == "coverage" and not _coverage_caveats_present(draft):
+            trace.append({"node": "verify", "result": "rejected",
+                          "reason": "coverage wording omitted the estimate or ownership-verification caveat",
+                          "action": "fell back to the deterministic answer"})
+            return {**s, "answer": reference, "used_model": False,
+                    "grounding": {"ok": False, "ungrounded": [], "checked": 0,
+                                  "rejected_for": "coverage_caveat"}, "trace": trace}
+
         # an echoed injection carries no figures, so it must be checked before
         # the numeric grounding test, not after it
         echo = echoes_untrusted(draft, s.get("untrusted_context", ""))
@@ -256,6 +293,15 @@ class FinanceAgent:
             return {**s, "answer": reference, "grounding": report.to_json(),
                     "used_model": False, "trace": trace}
 
+        if s.get("used_model") and r["intent"] == "spending_allowance":
+            allowance_error = spending_allowance_claim_error(draft, primary)
+            if allowance_error:
+                trace.append({"node": "verify", "result": "rejected", "reason": allowance_error,
+                              "action": "fell back to the deterministic answer"})
+                return {**s, "answer": reference, "used_model": False,
+                        "grounding": {"ok": False, "ungrounded": [], "checked": report.checked,
+                                      "rejected_for": "spending_allowance_claim"}, "trace": trace}
+
         forbidden = _claims_completed_action(draft, s.get("tool_results", []))
         if forbidden:
             trace.append({"node": "verify", "result": "rejected",
@@ -280,7 +326,8 @@ class FinanceAgent:
     # ------------------------------------------------------------------
     def _model_tool_calling(self, s: AgentState) -> bool:
         choice = ToolChoice(s.get("tool_choice") or self.tool_choice)
-        return choice == ToolChoice.MODEL and self.llm.available
+        return (choice == ToolChoice.MODEL and self.llm.available
+                and s.get("route", {}).get("intent") not in _DETERMINISTIC_CLARIFICATIONS)
 
     def _remaining_budget(self, s: AgentState) -> float:
         remaining = s.get("inference_deadline", time.monotonic() + self.llm.config.timeout) - time.monotonic()
@@ -288,14 +335,31 @@ class FinanceAgent:
             raise LLMUnavailable("The local model response budget was exhausted.")
         return remaining
 
+    def _context_arguments(self, name: str, arguments: dict) -> dict:
+        args = dict(arguments)
+        spec = self.tools.spec(name)
+        if self.default_account_id and spec:
+            properties = spec.parameters.get("properties", {})
+            if "account_id" in properties and "account_id" not in args:
+                args["account_id"] = self.default_account_id
+            if "card_id" in properties and "card_id" not in args:
+                cards = [card for card in self.tools.hh.cards.values()
+                         if card.account_id == self.default_account_id
+                         and self.tools._in_scope(card.account_id)]
+                if len(cards) == 1:
+                    args["card_id"] = cards[0].id
+        return args
+
     def _model_driven_tools(self, s: AgentState, trace: list) -> list[dict]:
-        """Genuine tool calling for a capable local model."""
+        """Model reads are separately authorized from explicit user mutations."""
         messages = [{"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": s["question"]}]
+        schemas = self.tools.openai_schemas(read_only=True)
+        allowed = {schema["function"]["name"] for schema in schemas}
         results: list[dict] = []
         for _ in range(self.max_tool_calls):
             try:
-                resp = self.llm.chat(messages, tools=self.tools.openai_schemas(),
+                resp = self.llm.chat(messages, tools=schemas,
                                      timeout=self._remaining_budget(s))
             except LLMUnavailable as e:
                 trace.append({"node": "execute", "mode": "model", "error": str(e)})
@@ -304,23 +368,48 @@ class FinanceAgent:
             calls = msg.get("tool_calls") or []
             if not calls:
                 break
+            if not isinstance(calls, list):
+                trace.append({"node": "execute", "mode": "model", "ok": False,
+                              "error": "invalid model tool-call list"})
+                return results
             messages.append(msg)
             for c in calls:
                 if len(results) >= self.max_tool_calls:
                     break
-                fn = (c.get("function") or {})
-                name = fn.get("name", "")
+                fn = c.get("function") if isinstance(c, dict) else None
+                name = fn.get("name") if isinstance(fn, dict) else None
+                spec = self.tools.spec(name) if isinstance(name, str) else None
+                # Filtering the advertised schemas is not authorization: a model
+                # can fabricate any function name, including a state-changing one.
+                if not spec or name not in allowed or not spec.read_only:
+                    trace.append({"node": "execute", "mode": "model", "ok": False,
+                                  "tool": name if isinstance(name, str) else None,
+                                  "error": "model tool is not authorized for read-only execution"})
+                    return results
                 try:
-                    args = json.loads(fn.get("arguments") or "{}")
-                except Exception:
-                    args = {}
+                    raw_arguments = fn.get("arguments", "{}")
+                    if not isinstance(raw_arguments, str):
+                        raise ValueError("arguments must be a JSON object string")
+                    args = json.loads(raw_arguments)
+                    if self.tools.validate_arguments(name, args):
+                        raise ValueError("arguments do not match the tool schema")
+                    args = self._context_arguments(name, args)
+                except (ValueError, TypeError):
+                    trace.append({"node": "execute", "mode": "model", "tool": name,
+                                  "ok": False, "error": "invalid model tool arguments"})
+                    return results
                 out = self.tools.call(name, args)
                 results.append(out)
                 trace.append({"node": "execute", "mode": "model", "tool": name,
                               "arguments": args, "ok": not out.get("error")})
                 messages.append({"role": "tool", "tool_call_id": c.get("id", ""),
                                  "content": json.dumps(_slim(out), default=str)[:4000]})
-            if len(results) >= self.max_tool_calls:
+            if (len(results) >= self.max_tool_calls
+                    or any(result.get("_tool") == s["route"]["tool"] and not result.get("error")
+                           for result in results)):
+                # The required calculation is complete. A separate compose step
+                # already explains it; another selection round only spends the
+                # remaining budget asking the model whether it is done.
                 break
         return results
 
@@ -399,6 +488,15 @@ _IN_FLIGHT_STATES = ("\"submitted\"", "\"processing\"", "\"reconciled\"",
 # needs evidence the payment reached or passed that point -- "submitted" or
 # "processing" mean it was dispatched, not that it landed.
 _SETTLED_STATES = ("\"reconciled\"", "\"credited_by_biller\"", "\"funds_available\"")
+
+
+def _coverage_caveats_present(text: str) -> bool:
+    """A coverage estimate must not be rewritten as verified deposit insurance."""
+    low = text.lower()
+    estimated = re.search(r"\bestimat(?:e|es|ed)\b", low)
+    ownership = re.search(r"\b(?:ownership|owner|registration|category)\b", low)
+    uncertain = re.search(r"\b(?:verify|confirm|unverified|unconfirmed)\b", low)
+    return bool(estimated and ownership and uncertain)
 
 
 def _claims_completed_action(text: str, payloads: list[dict]) -> Optional[str]:

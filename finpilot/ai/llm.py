@@ -26,6 +26,19 @@ over numbers a calculator produced.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
+_inference_metrics = ContextVar("finpilot_inference_metrics", default=None)
+
+def start_inference_metrics():
+    return _inference_metrics.set([])
+
+def inference_metrics():
+    return list(_inference_metrics.get() or [])
+
+def stop_inference_metrics(token):
+    _inference_metrics.reset(token)
+
+
 import json
 import math
 import os
@@ -269,7 +282,7 @@ class LocalLLM:
 
     def chat(self, messages: list[dict], *, temperature: Optional[float] = None,
              max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
-             tools: Optional[list[dict]] = None, timeout: Optional[float] = None) -> dict:
+             tools: Optional[list[dict]] = None, timeout: Optional[float] = None, response_format: Optional[dict] = None) -> dict:
         if not self.available:
             raise LLMUnavailable(
                 "No local model endpoint is reachable. Set FINPILOT_LLM_BASE_URL "
@@ -289,11 +302,14 @@ class LocalLLM:
                            if max_tokens is not None else self.config.max_tokens),
             "stream": False,
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
         if stop:
             payload["stop"] = stop
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+        started = time.monotonic()
         try:
             with self._connection() as client:
                 r = client.post(f"{self.config.base_url}/chat/completions",
@@ -315,8 +331,18 @@ class LocalLLM:
             self._record_health({"reachable": True, "base_url": self.config.base_url,
                 "runtime": self.config.runtime, "model": self.config.model,
                 "models_served": [self.config.model], "observation": "chat completion"})
+            metrics = _inference_metrics.get()
+            if metrics is not None:
+                metrics.append({"model": self.config.model,
+                    "usage": data.get("usage"),
+                    "finish_reason": data["choices"][0].get("finish_reason"),
+                    "provider": "local", "status": "completed", "latency_ms": round((time.monotonic()-started)*1000), "cost_usd": None})
             return data
         except (httpx.HTTPError, ValueError) as e:
+            metrics = _inference_metrics.get()
+            if metrics is not None:
+                metrics.append({"model":self.config.model,"provider":"local","status":"failed",
+                    "error":type(e).__name__,"latency_ms":round((time.monotonic()-started)*1000),"cost_usd":None})
             with self._state_lock:
                 self._retry_after = time.monotonic() + self.config.failure_cooldown
             self._record_health({"reachable": False, "base_url": self.config.base_url,
@@ -328,7 +354,12 @@ class LocalLLM:
         resp = self.chat([{"role": "system", "content": system},
                           {"role": "user", "content": user}], **kw)
         try:
-            msg = resp["choices"][0]["message"]
+            choice = resp["choices"][0]
+            # A token-limit cutoff may omit the qualification that makes a
+            # financial explanation true. Do not publish a partial draft.
+            if choice.get("finish_reason") in {"length", "content_filter"}:
+                raise LLMUnavailable("The local model did not finish its answer.")
+            msg = choice["message"]
         except (KeyError, IndexError, TypeError):
             return ""
         if not isinstance(msg, dict):

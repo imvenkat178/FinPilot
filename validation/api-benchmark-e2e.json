@@ -1,0 +1,300 @@
+{
+  "measured_at": "2026-09-13T19:05:49.265726+00:00",
+  "environment": {
+    "python": "3.12.14",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "database": "disposable SQLite WAL",
+    "transport": "in-process ASGI TestClient",
+    "live_external_calls": false
+  },
+  "method": {
+    "cold": "Application response/calculation caches cleared before each request; database/OS caches remain warm.",
+    "warm": "Same authenticated workspace revision with calculation cache populated.",
+    "timing": "Complete HTTP request/response including session auth, database, JSON and middleware; excludes setup unless separately reported.",
+    "percentile": "Nearest-rank p95; small repeat count, not a production SLA.",
+    "writes": "Create/update use the real command routes and If-Match revisions. Deletion is not an exposed workspace operation.",
+    "limitations": "Local single-process SQLite results exclude browser rendering, network/TLS and hosted PostgreSQL contention."
+  },
+  "scenarios": [
+    {
+      "dataset": "sample_plus_0_transactions",
+      "setup": {
+        "imported_rows": 0,
+        "import_ms": 0
+      },
+      "metrics": {
+        "bootstrap_cold_calculation": {
+          "runs": 12,
+          "median_ms": 63.02,
+          "p95_ms": 107.82,
+          "min_ms": 56.95,
+          "max_ms": 107.82,
+          "response_bytes": 103885,
+          "samples_ms": [
+            107.82,
+            66.34,
+            63.42,
+            58.43,
+            59.25,
+            70.76,
+            59.57,
+            60.64,
+            62.62,
+            74.15,
+            56.95,
+            81.08
+          ]
+        },
+        "bootstrap_warm_calculation": {
+          "runs": 12,
+          "median_ms": 32.94,
+          "p95_ms": 45.04,
+          "min_ms": 25.54,
+          "max_ms": 45.04,
+          "response_bytes": 103885,
+          "samples_ms": [
+            34.7,
+            26.77,
+            42.94,
+            29.13,
+            41.3,
+            29.7,
+            45.04,
+            31.49,
+            35.93,
+            25.54,
+            33.5,
+            32.39
+          ]
+        },
+        "indexed_history_first_page": {
+          "runs": 12,
+          "median_ms": 7.52,
+          "p95_ms": 13.13,
+          "min_ms": 6.51,
+          "max_ms": 13.13,
+          "response_bytes": 51,
+          "samples_ms": [
+            13.13,
+            7.49,
+            9.62,
+            8.24,
+            7.27,
+            6.51,
+            6.71,
+            7.55,
+            9.13,
+            7.33,
+            9.75,
+            7.5
+          ]
+        },
+        "account_update": {
+          "runs": 12,
+          "median_ms": 21.84,
+          "p95_ms": 41.75,
+          "min_ms": 17.8,
+          "max_ms": 41.75,
+          "response_bytes": 82,
+          "samples_ms": [
+            41.75,
+            23.8,
+            17.8,
+            22.77,
+            20.45,
+            22.95,
+            22.75,
+            22.14,
+            21.54,
+            18.25,
+            19.03,
+            20.01
+          ]
+        },
+        "account_create": {
+          "runs": 12,
+          "median_ms": 26.85,
+          "p95_ms": 36.98,
+          "min_ms": 20.98,
+          "max_ms": 36.98,
+          "response_bytes": 81,
+          "samples_ms": [
+            20.98,
+            23.62,
+            34.12,
+            23.07,
+            25.81,
+            27.89,
+            36.98,
+            31.3,
+            22.92,
+            36.82,
+            24.25,
+            29.45
+          ]
+        }
+      },
+      "inference_isolation": {
+        "passed": true,
+        "read_ms": 143.17,
+        "write_ms": 139.57,
+        "both_completed_before_model_release": true,
+        "held_during_operations_ms": 144.22,
+        "revision_after_write": 26,
+        "assistant_total_ms": 231.58,
+        "mock_model_calls": 1
+      }
+    },
+    {
+      "dataset": "sample_plus_5000_transactions",
+      "setup": {
+        "imported_rows": 5000,
+        "import_ms": 1769.15
+      },
+      "metrics": {
+        "bootstrap_cold_calculation": {
+          "runs": 12,
+          "median_ms": 313.52,
+          "p95_ms": 459.67,
+          "min_ms": 260.73,
+          "max_ms": 459.67,
+          "response_bytes": 144973,
+          "samples_ms": [
+            309.43,
+            356.27,
+            451.38,
+            285.44,
+            317.61,
+            363.06,
+            348.95,
+            459.67,
+            278.95,
+            260.73,
+            272.09,
+            286.45
+          ]
+        },
+        "bootstrap_warm_calculation": {
+          "runs": 12,
+          "median_ms": 37.78,
+          "p95_ms": 155.71,
+          "min_ms": 25.27,
+          "max_ms": 155.71,
+          "response_bytes": 144973,
+          "samples_ms": [
+            32.61,
+            34.56,
+            42.86,
+            47.41,
+            38.48,
+            37.08,
+            32.37,
+            41.24,
+            47.15,
+            155.71,
+            31.13,
+            25.27
+          ]
+        },
+        "indexed_history_first_page": {
+          "runs": 12,
+          "median_ms": 10.04,
+          "p95_ms": 10.97,
+          "min_ms": 8.81,
+          "max_ms": 10.97,
+          "response_bytes": 20593,
+          "samples_ms": [
+            10.39,
+            9.34,
+            9.34,
+            10.25,
+            10.71,
+            10.97,
+            10.12,
+            9.04,
+            9.96,
+            9.8,
+            8.81,
+            10.36
+          ]
+        },
+        "indexed_history_last_page": {
+          "runs": 12,
+          "median_ms": 24.22,
+          "p95_ms": 30.3,
+          "min_ms": 22.14,
+          "max_ms": 30.3,
+          "response_bytes": 20590,
+          "samples_ms": [
+            22.14,
+            24.54,
+            22.24,
+            24.12,
+            25.35,
+            25.11,
+            23.95,
+            23.65,
+            30.3,
+            24.33,
+            23.33,
+            27.82
+          ]
+        },
+        "account_update": {
+          "runs": 12,
+          "median_ms": 563.63,
+          "p95_ms": 1720.06,
+          "min_ms": 352.66,
+          "max_ms": 1720.06,
+          "response_bytes": 82,
+          "samples_ms": [
+            509.89,
+            352.66,
+            601.75,
+            455.71,
+            481.93,
+            525.5,
+            603.15,
+            368.52,
+            606.35,
+            1720.06,
+            1126.5,
+            888.64
+          ]
+        },
+        "account_create": {
+          "runs": 12,
+          "median_ms": 1312.67,
+          "p95_ms": 3174.06,
+          "min_ms": 480.2,
+          "max_ms": 3174.06,
+          "response_bytes": 81,
+          "samples_ms": [
+            3174.06,
+            910.33,
+            480.2,
+            1301.53,
+            1376.88,
+            1323.82,
+            1541.03,
+            910.38,
+            962.61,
+            714.59,
+            1511.34,
+            2522.89
+          ]
+        }
+      },
+      "inference_isolation": {
+        "passed": true,
+        "read_ms": 1206.87,
+        "write_ms": 1754.17,
+        "both_completed_before_model_release": true,
+        "held_during_operations_ms": 1772.07,
+        "revision_after_write": 27,
+        "assistant_total_ms": 2702.19,
+        "mock_model_calls": 1
+      }
+    }
+  ]
+}

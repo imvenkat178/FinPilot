@@ -294,7 +294,7 @@ export function detailContent(key, extra = {}) {
       table(
         ["Bill", "Due", "Amount"],
         d.bills.obligations.map((b) =>
-          cells(esc(b.name), dateLabel(b.due_date), money(b.amount)),
+          cells(esc(b.name), dateLabel(b.due_date), money(b.amount, true)),
         ),
       ) +
       foot(link("Open bills & payments", "bills"))

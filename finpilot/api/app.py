@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+import hashlib
 import os
 from pathlib import Path
 import time
@@ -23,6 +24,11 @@ from .finance_routes import router as finance_router
 from .workspace_routes import router as workspace_router
 from .assistant_routes import router as assistant_router
 from .bank_routes import router as bank_router
+from .conversation_routes import router as conversation_router
+from .document_routes import router as document_router
+from .mcp_routes import router as mcp_router
+from .action_routes import router as action_router
+from ..services.conversations import ConversationBusy
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 log = logging.getLogger("finpilot.requests")
@@ -49,6 +55,14 @@ class BodyLimitMiddleware:
 
 def create_app(database_url=None, *, llm=None):
     runtime = Runtime(Database(database_url), llm)
+    # Version the entire relative-import tree together. Updating only app.js
+    # leaves a browser free to reuse an older cached assistant.js or core.js.
+    asset_digest = hashlib.sha256()
+    for asset in sorted(WEB.iterdir()):
+        if asset.is_file() and asset.suffix in {".js", ".css", ".svg"}:
+            asset_digest.update(asset.name.encode("utf-8"))
+            asset_digest.update(asset.read_bytes())
+    asset_prefix = "/assets/v" + asset_digest.hexdigest()[:16]
     production = os.getenv("FINPILOT_ENV") == "production"
     origin = os.getenv("FINPILOT_PUBLIC_ORIGIN", "").rstrip("/")
     if production and (not origin.startswith("https://") or not urlparse(origin).hostname):
@@ -83,6 +97,8 @@ def create_app(database_url=None, *, llm=None):
         response.headers["Content-Security-Policy"] = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "no-cache"
         if production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         if hasattr(request.state, "revision"):
@@ -98,6 +114,10 @@ def create_app(database_url=None, *, llm=None):
 
     @app.exception_handler(RevisionConflict)
     async def conflict(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=409)
+
+    @app.exception_handler(ConversationBusy)
+    async def conversation_busy(request, exc):
         return JSONResponse({"detail": str(exc)}, status_code=409)
 
     @app.exception_handler(ValueError)
@@ -123,7 +143,8 @@ def create_app(database_url=None, *, llm=None):
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard():
-        return HTMLResponse((WEB / "index.html").read_text(encoding="utf-8"),
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(html.replace('/assets/', asset_prefix + '/'),
                             headers={"Cache-Control": "no-cache"})
 
     app.include_router(auth_router)
@@ -131,6 +152,11 @@ def create_app(database_url=None, *, llm=None):
     app.include_router(workspace_router)
     app.include_router(assistant_router)
     app.include_router(bank_router)
+    app.include_router(conversation_router)
+    app.include_router(document_router)
+    app.include_router(mcp_router)
+    app.include_router(action_router)
+    app.mount(asset_prefix, StaticFiles(directory=WEB), name="versioned-assets")
     app.mount("/assets", StaticFiles(directory=WEB), name="assets")
     return app
 

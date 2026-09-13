@@ -11,3 +11,6 @@ psycopg[binary]>=3.2,<4
 argon2-cffi>=23.1,<26
 alembic>=1.13,<2
 cryptography>=43,<47
+mcp>=1.26,<2
+pypdf>=6.18.1,<7
+python-multipart>=0.0.20,<1

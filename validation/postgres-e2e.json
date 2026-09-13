@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "database": "local PostgreSQL, disposable database",
+  "live_external_calls": false,
+  "checks": [
+    "migration_head_repeat_and_metadata",
+    "compound_authenticated_chat",
+    "two_workers_one_confirmation_receipt_and_refresh",
+    "two_workers_conflicting_previews_reject_stale",
+    "cross_tenant_rejection_and_cancel",
+    "actual_mcp_sdk_fixture_import_and_receipt",
+    "migration_downgrade_and_reupgrade"
+  ],
+  "elapsed_seconds": 9.593
+}

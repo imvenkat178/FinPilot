@@ -1,11 +1,11 @@
 """Guardrails -- spec section 10.
 
-Three things are enforced mechanically rather than by asking the model nicely:
+The answer path combines deterministic checks with explicit tool permissions:
 
-1.  NO INVENTED NUMBERS. Every monetary figure, percentage and date in the
-    final answer must appear in the tool output it was grounded on. "A missing
-    number is not filled with an invented fact." An answer that fails this check
-    is rejected and the deterministic template is used instead.
+1.  NUMERIC VALUE CHECKS. Recognized monetary, percentage and date formats are
+    checked against structured tool output. Unsupported values reject the draft
+    in favor of calculator wording. This does not prove the semantic relationship
+    between an allowed value and a sentence, or cover every written number form.
 
 2.  UNTRUSTED CONTENT STAYS DATA. "Retrieved statements, merchant descriptions,
     uploaded documents, and web pages are untrusted content. Instructions found
@@ -49,62 +49,103 @@ STATE_PREFIX = {
 # 1. Numeric grounding
 # ---------------------------------------------------------------------------
 
-_MONEY = re.compile(r"[-−]?[$£€₹]\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*\.\d{2}\b")
-_PERCENT = re.compile(r"\b\d+(?:\.\d+)?\s?%")
+# Financial prose uses both symbols and words ("USD 50", "50 dollars",
+# "2.5 million"). All supported forms normalize to the same numeric value.
+_NUMBER = r"\d[\d,]*(?:\.\d+)?"
+_MAGNITUDE = r"(?:thousand|million|billion|k|m|b)"
+_CURRENCY = r"(?:USD|EUR|GBP|INR|(?:U\.?S\.?\s+)?dollars?|euros?|pounds?|rupees?)"
+_MONEY = re.compile(
+    rf"[-−]?[$£€₹]\s?{_NUMBER}(?:\s*{_MAGNITUDE}\b)?"
+    rf"|\b{_CURRENCY}\s*[-−]?{_NUMBER}(?:\s*{_MAGNITUDE}\b)?"
+    rf"|[-−]?\b{_NUMBER}(?:\s*{_MAGNITUDE}\b)?\s*{_CURRENCY}\b"
+    rf"|[-−]?\b{_NUMBER}\s*{_MAGNITUDE}\b"
+    rf"|[-−]?\b\d[\d,]*\.\d{{2}}\b", re.I)
+_PERCENT = re.compile(rf"[-−]?\b{_NUMBER}(?:\s*{_MAGNITUDE}\b)?\s*(?:%|percent\b)", re.I)
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _MONTHS = re.compile(r"\b(\d{1,4})\s+months?\b", re.I)
+_NUMERIC = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
+_FINANCIAL_VALUE = re.compile(
+    rf"\s*(?P<sign>[-−]?)\s*(?:[$£€₹]|{_CURRENCY})?\s*(?P<sign_after>[-−]?)"
+    rf"\s*(?P<number>{_NUMBER})(?:\s*(?P<magnitude>{_MAGNITUDE})\b)?"
+    rf"\s*(?:%|percent|{_CURRENCY})?\s*", re.I)
 
-# figures a writer may legitimately use without them appearing in tool output
-_SAFE = {"0", "0.00", "1", "2", "3", "100"}
+# Zero is useful for describing the absence of an amount. Positive constants
+# require evidence just like every other monetary figure or rate.
+_SAFE = {"0"}
+_IDENTIFIER_FIELDS = {"id", "mask", "mcc", "routing_number", "account_number",
+                      "last_four", "last4", "reference", "reference_number"}
+_TEXT_FIELDS = {"name", "nickname", "label", "description", "merchant", "institution",
+                "category", "source", "note", "notes", "reason", "finding", "explanation",
+                "assumptions", "caveats", "warnings", "_tool"}
 
 
 def _norm_money(tok: str) -> str:
-    # The sign must survive normalization. Stripping every non-digit
-    # character (the previous behaviour) discarded a leading "-" or "−"
-    # along with currency symbols and commas, so "-$500.00" (owed, a debt,
-    # a negative balance) and "$500.00" (an asset, a positive balance)
-    # both normalized to the same "500" -- meaning grounding treated a
-    # positive figure in the answer as confirmed by a negative figure of
-    # the same magnitude anywhere in the tool output, and vice versa. A
-    # figure's sign is part of its meaning here (a payment that reduced a
-    # balance vs. one that increased it, an amount owed vs. an amount
-    # available), so it cannot be normalized away.
-    t = tok.strip()
-    negative = t.startswith("-") or t.startswith("−")
-    digits = re.sub(r"[^\d.]", "", t)
-    if not digits:
+    text = tok.strip()
+    # Canonical numeric values may use exponent notation. A string containing
+    # an ID or a date is never normalized by extracting its unrelated digits.
+    if _NUMERIC.fullmatch(text):
+        try:
+            value = Decimal(text)
+        except InvalidOperation:
+            return ""
+    else:
+        match = _FINANCIAL_VALUE.fullmatch(text)
+        if not match:
+            return ""
+        try:
+            value = Decimal(match.group("number").replace(",", ""))
+        except InvalidOperation:
+            return ""
+        if match.group("sign") or match.group("sign_after"):
+            value = -value
+        magnitude = (match.group("magnitude") or "").lower()
+        value *= {"k": 1000, "thousand": 1000, "m": 1000000, "million": 1000000,
+                  "b": 1000000000, "billion": 1000000000}.get(magnitude, 1)
+    if not value.is_finite():
         return ""
-    try:
-        d = Decimal(digits)
-    except InvalidOperation:
-        return ""
-    if negative:
-        d = -d
-    return str(d.normalize())
+    return format(value.normalize(), "f")
 
 
-def _collect_from_payload(obj: Any, out: set[str]) -> None:
+def _collect_from_payload(obj: Any, out: set[str], percentages: Optional[set[str]] = None,
+                          field: str = "") -> None:
     if isinstance(obj, dict):
-        for v in obj.values():
-            _collect_from_payload(v, out)
+        for key, value in obj.items():
+            key = str(key).lower()
+            if (key in _IDENTIFIER_FIELDS or key.endswith(("_id", "_ids", "_code"))
+                    or key in _TEXT_FIELDS):
+                continue
+            _collect_from_payload(value, out, percentages, key)
     elif isinstance(obj, list):
-        for v in obj:
-            _collect_from_payload(v, out)
+        for value in obj:
+            _collect_from_payload(value, out, percentages, field)
     elif obj is None or isinstance(obj, bool):
         return
     else:
-        s = str(obj)
-        n = _norm_money(s)
-        if n:
-            out.add(n)
-        out.add(s)
-        # percentages stored as fractions, e.g. "0.04" -> "4"
-        try:
-            d = Decimal(s)
-            out.add(str((d * 100).normalize()))
-            out.add(str(d.quantize(Decimal("0.01")).normalize()))
-        except (InvalidOperation, ValueError):
-            pass
+        text = str(obj).strip()
+        if _DATE.fullmatch(text[:10]) and (len(text) == 10 or text[10] in ("T", " ")):
+            out.add(text)
+            return
+        if field == "scenario":
+            # Generated scenario descriptions carry the chosen duration, e.g.
+            # "no income for 1 month(s)". Do not scrape unrelated prose/IDs.
+            out.update(_MONTHS.findall(text))
+        number = _norm_money(text)
+        if not number:
+            return
+        if _PERCENT.fullmatch(text):
+            if percentages is not None:
+                percentages.add(number)
+            return
+        out.add(number)
+        if _NUMERIC.fullmatch(text):
+            try:
+                value = Decimal(text)
+                out.add(format(value.quantize(Decimal("0.01")).normalize(), "f"))
+                rate_field = re.search(r"(?:^|_)(?:rate|apr|apy|marginal|yield|utilization|ratio|decline|discount|percentage|percent)(?:_|$)", field)
+                if percentages is not None and rate_field:
+                    percentages.add(format((value * 100).normalize(), "f"))
+            except (InvalidOperation, ValueError):
+                pass
 
 
 @dataclass
@@ -118,17 +159,32 @@ class GroundingReport:
 
 
 def check_grounding(answer: str, payloads: Iterable[Any]) -> GroundingReport:
-    """Reject any figure in the answer that does not appear in the tool output."""
+    """Check supported financial number formats against structured values.
+
+    This is value grounding, not semantic verification: it does not prove that
+    a sentence assigns a supported value to the correct account/metric or
+    preserves every caveat. Callers must not describe it as a factual guarantee.
+    """
     allowed: set[str] = set()
+    percentages: set[str] = set()
     for p in payloads:
-        _collect_from_payload(p, allowed)
+        _collect_from_payload(p, allowed, percentages)
     allowed_norm = {_norm_money(a) for a in allowed} | allowed
     allowed_norm.discard("")
 
     ungrounded: list[str] = []
     checked = 0
 
-    for tok in _MONEY.findall(answer):
+    percentage_claims = list(_PERCENT.finditer(answer))
+    for match in _MONEY.finditer(answer):
+        # The bare two-decimal pattern can also match the inside of a percent.
+        if any(p.start() <= match.start() and match.end() <= p.end() for p in percentage_claims):
+            continue
+        tok = match.group(0)
+        # These unprefixed names identify retirement plans, not scaled money.
+        # Currency-prefixed/suffixed forms ($401k, 401k dollars) still count.
+        if re.fullmatch(r"(?:401k|403b)", tok, re.I):
+            continue
         checked += 1
         n = _norm_money(tok)
         if n in _SAFE:
@@ -136,12 +192,13 @@ def check_grounding(answer: str, payloads: Iterable[Any]) -> GroundingReport:
         if n not in allowed_norm:
             ungrounded.append(tok.strip())
 
-    for tok in _PERCENT.findall(answer):
+    for match in percentage_claims:
+        tok = match.group(0)
         checked += 1
         n = _norm_money(tok)
         if n in _SAFE:
             continue
-        if n not in allowed_norm:
+        if n not in percentages:
             ungrounded.append(tok.strip())
 
     for tok in _DATE.findall(answer):
@@ -158,6 +215,53 @@ def check_grounding(answer: str, payloads: Iterable[Any]) -> GroundingReport:
             ungrounded.append(f"{tok} months")
 
     return GroundingReport(not ungrounded, ungrounded, checked)
+
+
+_SPENDING_CLAIM = re.compile(
+    r"\b(?:can(?:\s+safely)?\s+spend|safe\s+to\s+spend|available\s+(?:to|for)\s+spend(?:ing)?"
+    r"|spending\s+allowance|spendable(?:\s+amount)?|discretionary\s+(?:spending|cash|amount)"
+    r"|you['\u2019]ve\s+got)\b", re.I)
+_CLAIM_BEFORE_AMOUNT = re.compile(
+    r"\s*(?:(?:is|are|was|remains|would be|will be|of|about|around|approximately|roughly|up to|at most|estimated at)\s+)*[:=]?\s*", re.I)
+_CLAIM_AFTER_AMOUNT = re.compile(r"\s*(?:(?:is|are|would be|will be|remains|in total)\s*)*", re.I)
+
+
+def spending_allowance_claim_error(answer: str, payload: dict) -> Optional[str]:
+    """Keep a recognized spendable claim tied to the amount field.
+
+    Value grounding alone allows a model to call a protected balance spendable.
+    Only simple, attributable allowance wording is accepted here; unfamiliar
+    wording falls back to the calculator rather than attempting broad semantic
+    verification with a second model. This checks monetary attribution within
+    recognized claim sentences, not every possible semantic claim in the prose.
+    """
+    expected = _norm_money(str((payload.get('amount') or {}).get('amount', '')))
+    figures = list(_MONEY.finditer(answer))
+    claims = list(_SPENDING_CLAIM.finditer(answer))
+    if not expected or not claims:
+        return 'The draft did not identify a verifiable spending allowance.'
+    # Currency decimals and dotted currency names (e.g. U.S. dollars) belong to
+    # their money token, rather than ending the sentence. Keep semicolon clauses
+    # and wrapped lines together so an alternative cannot evade the claim check.
+    boundaries = [m.start() for m in re.finditer(r'[.!?]', answer)
+                  if not any(f.start() <= m.start() < f.end() for f in figures)]
+    for claim in claims:
+        sentence_start = max((i + 1 for i in boundaries if i < claim.start()), default=0)
+        sentence_end = min((i for i in boundaries if i >= claim.end()), default=len(answer))
+        if any(_norm_money(f.group()) != expected for f in figures
+               if sentence_start <= f.start() < sentence_end):
+            return 'The spending-allowance sentence contains a different monetary amount.'
+        amount = None
+        for figure in figures:
+            if figure.start() >= claim.end() and _CLAIM_BEFORE_AMOUNT.fullmatch(answer[claim.end():figure.start()]):
+                amount = _norm_money(figure.group())
+                break
+            if figure.end() <= claim.start() and _CLAIM_AFTER_AMOUNT.fullmatch(answer[figure.end():claim.start()]):
+                amount = _norm_money(figure.group())
+                break
+        if amount != expected:
+            return 'The spendable amount did not match the calculator allowance after protected reserves.'
+    return None
 
 
 # ---------------------------------------------------------------------------

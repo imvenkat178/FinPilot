@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Optional
 
 from ..models import Confidence
-from ..money import Money
+from ..money import Money, msum
 
 
 @dataclass
@@ -76,13 +76,22 @@ class NetBenefitRow:
     liquidity_retained: Money
     residual_debt: Money
     note: str
+    debt_applied: Money = field(default_factory=Money.zero)
+    debt_interest_benefit: Money = field(default_factory=Money.zero)
+    retained_cash_interest: Money = field(default_factory=Money.zero)
+    selected_debt_remaining: Optional[Money] = None
 
     def to_json(self) -> dict:
         return {"label": self.label,
                 "one_year_net_benefit": self.one_year_net_benefit.to_json(),
                 "versus_baseline": self.versus_baseline.to_json(),
                 "liquidity_retained": self.liquidity_retained.to_json(),
-                "residual_debt": self.residual_debt.to_json(), "note": self.note}
+                "residual_debt": self.residual_debt.to_json(), "note": self.note,
+                "debt_applied": self.debt_applied.to_json(),
+                "debt_interest_benefit": self.debt_interest_benefit.to_json(),
+                "retained_cash_interest": self.retained_cash_interest.to_json(),
+                "selected_debt_remaining": (self.selected_debt_remaining.to_json()
+                                             if self.selected_debt_remaining is not None else None)}
 
 
 @dataclass
@@ -117,35 +126,58 @@ def after_tax_interest(gross: Money, rate: Decimal) -> Money:
 
 
 def compare_savings_vs_debt(amount: Money, cash_apy: Decimal,
-                            debt_options: list[tuple[str, Decimal, bool]],
+                            debt_options: list[tuple[str, Decimal, bool, Money] | tuple[str, Decimal, bool]],
                             profile: TaxProfile, horizon_days: int = 365,
                             treasury: bool = False,
                             existing_debt_balance: Optional[Money] = None
                             ) -> NetBenefitComparison:
-    """Compare retaining cash against applying it to each eligible existing debt.
+    """Compare the same starting cash against paying each existing debt.
 
-    `debt_options` are (label, annual_rate, interest_is_deductible) triples.
+    Options contain (label, annual_rate, interest_is_deductible, current_balance).
+    Legacy triples require an explicit existing_debt_balance; no unknown balance
+    is inferred from the amount the user wants to compare.
     """
     cur = amount.currency
     years = Decimal(horizon_days) / Decimal(365)
     gross = (amount * cash_apy * years).round()
     tax_rate = profile.rate_on_interest(treasury=treasury)
     net_interest = after_tax_interest(gross, tax_rate)
+    options = []
+    for option in debt_options:
+        if len(option) == 4:
+            label, rate, deductible, balance = option
+        elif len(option) == 3 and existing_debt_balance is not None:
+            label, rate, deductible = option
+            balance = existing_debt_balance
+        else:
+            raise ValueError("A current balance is required for each debt comparison")
+        if balance.currency != cur:
+            raise ValueError("Debt and starting cash must use the same currency")
+        if balance.is_positive:
+            options.append((label, rate, deductible, balance))
+    total_debt = (existing_debt_balance if existing_debt_balance is not None else
+                  msum([balance for _, _, _, balance in options], cur))
 
     baseline = NetBenefitRow(
         "Retain the cash in the existing deposit account", net_interest,
-        Money.zero(cur), amount, existing_debt_balance or Money.zero(cur),
+        Money.zero(cur), amount, total_debt,
         f"Gross interest {gross} less an estimated {tax_rate * 100}% incremental "
-        "tax. Cash retained also preserves liquidity.")
+        "tax. Cash retained also preserves liquidity.",
+        debt_applied=Money.zero(cur), debt_interest_benefit=Money.zero(cur),
+        retained_cash_interest=net_interest)
 
     rows: list[NetBenefitRow] = []
-    for label, rate, deductible in debt_options:
-        avoided = (amount * rate * years).round()
-        benefit = avoided
+    break_even_rates = []
+    for label, rate, deductible, balance in options:
+        applied = min(amount, balance)
+        retained = amount - applied
+        retained_interest = after_tax_interest((retained * cash_apy * years).round(), tax_rate)
+        avoided = (applied * rate * years).round()
+        debt_benefit = avoided
         note = f"Avoided interest of {avoided} at {rate * 100}%."
         if deductible and profile.itemizes:
             lost_deduction = (avoided * profile.federal_marginal).round()
-            benefit = avoided - lost_deduction
+            debt_benefit = avoided - lost_deduction
             note = (f"Avoided interest of {avoided}, reduced by the {lost_deduction} "
                     "tax benefit lost when that interest is no longer paid. This "
                     "assumes the deduction is fully usable in your actual case, "
@@ -153,18 +185,24 @@ def compare_savings_vs_debt(amount: Money, cash_apy: Decimal,
         elif deductible and not profile.itemizes:
             note += (" The interest is of a type that can qualify, but your profile "
                      "does not itemize, so no tax benefit is modelled here.")
-        residual = ((existing_debt_balance or Money.zero(cur)) - amount).clamp_min_zero()
+        note += (f" Apply {applied} to the recorded {balance} balance and retain "
+                 f"{retained} in the same deposit account, earning an estimated "
+                 f"{retained_interest} after tax over this period. "
+                 "Principal repaid usually cannot be recovered without a new "
+                 "borrowing or sale decision.")
+        benefit = debt_benefit + retained_interest
         rows.append(NetBenefitRow(
-            f"Reduce {label} by {amount}", benefit, benefit - net_interest,
-            Money.zero(cur), residual,
-            note + " Principal repaid usually cannot be recovered without a new "
-                   "borrowing or sale decision."))
-
-    # break-even cash yield: the APY at which retaining cash matches the best debt
-    best = max((r.one_year_net_benefit.amount for r in rows), default=None)
-    break_even = None
-    if best is not None and amount.amount > 0 and years > 0:
-        break_even = (best / (Decimal(1) - tax_rate)) / (amount.amount * years)
+            f"Reduce {label} by {applied}; retain {retained} in cash", benefit,
+            benefit - net_interest, retained, (total_debt - applied).clamp_min_zero(),
+            note, debt_applied=applied, debt_interest_benefit=debt_benefit,
+            retained_cash_interest=retained_interest,
+            selected_debt_remaining=(balance - applied).clamp_min_zero()))
+        # Retained cash earns the same yield on both sides and cancels. Only
+        # the amount diverted to debt enters the break-even yield calculation.
+        if applied.is_positive and years > 0 and tax_rate < 1:
+            break_even_rates.append(debt_benefit.amount /
+                ((Decimal(1) - tax_rate) * applied.amount * years))
+    break_even = max(break_even_rates, default=None)
 
     conf = Confidence.EXACT if profile.verified else Confidence.BOUNDED
     return NetBenefitComparison(
@@ -173,7 +211,8 @@ def compare_savings_vs_debt(amount: Money, cash_apy: Decimal,
         confidence=conf,
         assumptions=[
             "Both sides start with the same cash, the same required payments and "
-            "the same horizon.",
+            "the same horizon. A debt payment is capped at its recorded balance; "
+            "any remainder stays in the same deposit account and earns the same cash yield.",
             "Debt rows assume the principal difference persists for the whole "
             "period with simple annual interest. Actual amortising loans require "
             "the paired payment schedules from the repayment engine.",
@@ -219,4 +258,4 @@ def interest_deduction_check(loan_type: str, profile: TaxProfile) -> dict:
                                          "No verified rule for this loan type."))
     return {"loan_type": loan_type, "deductible": status, "explanation": note,
             "itemizes": profile.itemizes, "tax_year": profile.tax_year,
-            "requires_verification": True}
+            "requires_verification": True, "confidence": Confidence.BOUNDED.value}

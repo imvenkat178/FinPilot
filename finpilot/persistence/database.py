@@ -147,3 +147,12 @@ class Database:
 
     def close(self):
         self.engine.dispose()
+
+# Register private document metadata for local initialization and Alembic.
+from . import document_models  # noqa: E402,F401
+
+from . import conversation_models  # noqa: E402,F401
+
+# Register optional feature tables for local initialization and migration metadata.
+from . import mcp_models  # noqa: E402, F401
+from . import action_models  # noqa: E402, F401

@@ -56,6 +56,12 @@ INTENTS: list[Intent] = [
         r"\bwhat('?s| is) my (balance|position)\b",
         r"\bsummari[sz]e (my |the )?accounts\b",
         r"\bhow much cash do i have\b",
+        r"\b(financial|finance|money|account|cash) (overview|summary|snapshot|picture|position)\b",
+        r"\b(overview|summary|snapshot) (of|for) (all )?(my |our |the )?(finances|money|accounts|financial (position|situation))\b",
+        r"\b(summari[sz]e|sum up|explain|show|review|break down) (me )?(my |our |the )?(finances|financial (position|situation))\b",
+        r"\bhow (am i|are we) doing financially\b",
+        r"\bwhere (do i|do we) stand financially\b",
+        r"\bhow much (money|cash) (do we have|have i got)\b",
     ], 2),
 
     Intent("reserves", "get_money_overview", [
@@ -64,7 +70,12 @@ INTENTS: list[Intent] = [
     ], 3),
 
     Intent("spending_allowance", "get_spending_allowance", [
-        r"\bcan i afford\b", r"\bhow much can i spend\b",
+        r"\b(can|could) (i|we) (safely |comfortably )?afford\b",
+        r"\b(how much|what) (money |cash )?(can|could|may) (i|we) (safely |comfortably |reasonably )?spend\b",
+        r"\bhow much (money |cash )?do (i|we) have (left )?to spend\b",
+        r"\b(what('?s| is)|how much (money |cash )?is) (safe|available|left) (for me |for us )?to spend\b",
+        r"\b(what('?s| is)|show me) (my|our) (safe )?spending (limit|budget)\b",
+        r"\bsafe[ -]to[ -]spend (amount|balance)\b", r"\bsafe spending\b",
         r"\bsafe to spend\b", r"\bavailable (spending|to spend)\b",
         r"\bwhy did my (available )?spending (fall|drop|go down)\b",
         r"\bspending allowance\b",
@@ -303,7 +314,16 @@ class RouteResult:
 
 def route(question: str) -> RouteResult:
     q = (question or "").strip()
-    low = q.lower()
+    low = re.sub(r"\s+", " ", q.casefold().replace("\u2019", "'"))
+    amount = extract_amount(q)
+    if (amount is not None and re.search(r"\b(extra|additional|another|more)\b", low)
+            and re.search(r"\b(pay|payment|loan|debt|principal|mortgage|towards?)\b", low)
+            and not re.search(r"\b(pause|skip|cancel|stop|resume)\b", low)
+            and re.search(r"\b((every|each|per|a) (payday|paycheck|pay period|week|fortnight)"
+                          r"|weekly|bi[- ]?weekly|fortnightly|every (two|2) weeks"
+                          r"|twice (a|per|each) month)\b", low)):
+        return RouteResult("extra_payment_cadence_clarification", "what_if_extra_payment",
+                           {"amount": amount}, AnswerState.HYPOTHETICAL, 100)
     scores: list[tuple[int, Intent]] = []
     for it in INTENTS:
         hits = sum(1 for p in it.patterns if re.search(p, low))
@@ -316,9 +336,35 @@ def route(question: str) -> RouteResult:
                            AnswerState.INFORMATIONAL, 0)
 
     score, best = scores[0]
+    if best.name == "card_choice" and _unresolved_card_location(low):
+        return RouteResult("card_location_clarification", "get_money_overview", {},
+                           AnswerState.INFORMATIONAL, score)
     args = _arguments_for(best, q, low)
     alts = [i.name for _, i in scores[1:4]]
     return RouteResult(best.name, best.tool, args, best.state, score, alts)
+
+
+def _foreign_purchase(low: str) -> bool:
+    if re.search(r"\b(domestic(ally)?|locally|in (my|our|the) home country)\b", low):
+        return False
+    return bool(re.search(r"\b(abroad|overseas|foreign|in europe|in japan)\b", low))
+
+
+def _unresolved_card_location(low: str) -> bool:
+    """Recognize missing fee context, without pretending to geocode place names."""
+    if (_foreign_purchase(low)
+            or re.search(r"\b(domestic(ally)?|locally|in (my|our|the) home country)\b", low)):
+        return False
+    for match in re.finditer(r"\bin\s+([a-z][^,.?!]*)", low):
+        phrase = match.group(1)
+        if re.match(r"(person|store|app|cash|full|advance|general|total)\b"
+                    r"|(my|our|the|an?) (wallet|account|app|store|restaurant|supermarket)\b"
+                    r"|(a|one|two|three|four|five|six|seven|eight|nine|ten) (day|week|month)s?\b"
+                    r"|(january|february|march|april|may|june|july|august|september|"
+                    r"october|november|december)\b", phrase):
+            continue
+        return True
+    return False
 
 
 def _arguments_for(it: Intent, q: str, low: str) -> dict:
@@ -331,8 +377,7 @@ def _arguments_for(it: Intent, q: str, low: str) -> dict:
                 "channel": "online" if any(w in low for w in
                                            ("online", "portal", "app", "delivery"))
                 else "in_person",
-                "foreign": any(w in low for w in ("abroad", "overseas", "foreign",
-                                                  "in europe", "in japan"))}
+                "foreign": _foreign_purchase(low)}
     if it.tool == "compare_card_vs_bank_for_bill":
         return {"amount": amount or 1000.0}
     if it.tool == "assess_sweep_move":
@@ -351,6 +396,8 @@ def _arguments_for(it: Intent, q: str, low: str) -> dict:
         if m:
             n = int(m.group(1))
             return {"days": n * 7 if m.group(2) == "week" else n}
+        if re.search(r"\b(this|next|coming|one|a) week\b", low):
+            return {"days": 7}
         return {"days": 14}
     if it.tool == "compare_debt_strategies":
         if amount:
@@ -399,9 +446,31 @@ def _mv(d: Any) -> str:
 
 
 def template_answer(intent: str, result: dict) -> str:
+    if intent == "card_location_clarification":
+        return ("Before I compare cards, is this purchase domestic or abroad, and "
+                "will it be charged in a foreign currency? A place name alone does "
+                "not establish whether foreign transaction fees apply. "
+                "No card recommendation has been calculated.")
+
+    if intent == "extra_payment_cadence_clarification":
+        explanation = ("I need your pay frequency and the total extra amount per month "
+                       "confirmed. This calculator models monthly extra payments; it "
+                       "cannot apply a per-payday, weekly, or biweekly schedule. ")
+        if not result.get("error") and result.get("extra_per_month"):
+            explanation += (f"The attached figures assume {_mv(result['extra_per_month'])} "
+                            "extra per month only. ")
+        return explanation + "No payment or plan has been changed."
+
     if result.get("error"):
         return (f"I could not answer that: {result['error']}. Nothing has been "
                 "calculated or changed.")
+
+    if intent == "unknown":
+        return ("I haven't identified the calculation you need yet. I can help with "
+                "account balances and net worth, paycheck planning, upcoming bills, "
+                "spending limits, debt comparisons, or account connections. "
+                "Which would you like to look at? For example, ask "
+                "'How much can I safely spend this week?'")
 
     if intent == "paycheck_split":
         lines = []
@@ -460,10 +529,10 @@ def template_answer(intent: str, result: dict) -> str:
 
     if intent == "spending_allowance":
         return (f"You can spend about {_mv(result['amount'])} through "
-                f"{result['through']}. That is set by the lowest projected balance "
-                f"of {_mv(result['low_point_balance'])} on {result['low_point_date']}, "
-                f"after {_mv(result['required_before'])} of required bills and "
-                f"{_mv(result['protected'])} of protected reserves. "
+                f"{result['through']}. The lowest projected balance is "
+                f"{_mv(result['low_point_balance'])} on {result['low_point_date']}. "
+                f"The forecast includes {_mv(result['required_before'])} of required bills. "
+                f"{_mv(result['protected'])} of protected reserves is then excluded from spending. "
                 f"Confidence: {result['confidence']}."
                 + (f" Still to confirm: {'; '.join(result['missing'])}."
                    if result.get("missing") else ""))
@@ -674,6 +743,8 @@ def template_answer(intent: str, result: dict) -> str:
         return "\n".join(["Collateral stress:"] + out + [result["warnings"][0]])
 
     if intent == "coverage_remedy":
+        if "recommended_move" not in result and result.get("action"):
+            return (result["action"]+" This is an estimate; verify the institution and ownership information. No transfer is needed by this estimate.")
         if result.get("error"):
             return result["error"]
         return (f"Move {_mv(result['recommended_move'])} from "

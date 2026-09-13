@@ -318,3 +318,20 @@ def test_unspecified_extra_payment_asks_for_amount_without_inventing_one():
     assert result.intent == "extra_payment_help"
     assert "How much extra per month" in result.answer
     assert result.state.value == "informational"
+
+
+@pytest.mark.parametrize("finish_reason", ["length", "content_filter"])
+def test_incomplete_model_answer_uses_complete_calculator_explanation(finish_reason):
+    registry = ToolRegistry(demo_household())
+    reference = template_answer("money_overview", registry.call("get_money_overview"))
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"finish_reason": finish_reason,
+            "message": {"role": "assistant", "content": reference[:100]}}]})
+    llm = configured(handler)
+    try:
+        answer = FinanceAgent(registry, llm, compile_graph=False).ask("How much money do I have?")
+        assert answer.answer == reference
+        assert not answer.used_model
+        assert any("did not finish" in node.get("reason", "") for node in answer.trace)
+    finally:
+        llm.close()

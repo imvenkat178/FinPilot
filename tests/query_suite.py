@@ -14,6 +14,7 @@ the model owns wording.
 
     python -m tests.query_suite --mock            spin up the test double
     python -m tests.query_suite --verbose         print every answer
+    python -m tests.query_suite --offline         never contact a model
     python -m tests.query_suite --tool-choice model    model-driven tool calling
 """
 from __future__ import annotations
@@ -28,7 +29,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from finpilot.ai.graph import FinanceAgent, ToolChoice
-from finpilot.ai.llm import LocalLLM, autodetect
+from finpilot.ai.guardrails import check_grounding
+from finpilot.ai.llm import LLMConfig, LocalLLM, autodetect
 from finpilot.ai.tools import ToolRegistry
 from finpilot.execution.engine import (ExecutionEngine, LegState, ProviderFault,
                                        SimulatedProvider)
@@ -59,8 +61,9 @@ CASES: list[Case] = [
     Case("Which of my cards should I use for an $80 dinner?", "choose_card",
          None, ["$3.20", "Everyday Rewards"],
          note="eligible owned-card comparison for this service and price"),
-    Case("Which card for a $60 dinner in Paris?", "choose_card", None,
-         [], note="foreign transaction fees must enter the net value"),
+    Case("Which card for a $60 dinner in Paris?", "get_money_overview", None,
+         ["domestic or abroad", "foreign transaction fees", "No card recommendation"],
+         note="unknown location requires fee-context clarification before choosing a card"),
     Case("What if I pay another $300 toward debt?", "what_if_extra_payment",
          "hypothetical", ["Scenario only"],
          ["I have scheduled", "I've moved"]),
@@ -77,7 +80,9 @@ CASES: list[Case] = [
          None, ["First Meridian Bank"],
          note="aggregate by underlying institution, owner and category"),
     Case("Pay $300 extra to this loan every payday", "what_if_extra_payment",
-         "hypothetical", ["Scenario only"], ["I have set that up"]),
+         "hypothetical", ["Scenario only", "pay frequency", "per month only",
+                          "No payment or plan has been changed"],
+         ["I have set that up", "You can pay"]),
 
     # -- money overview ---------------------------------------------------
     Case("How much money do I have across all my accounts?", "get_money_overview",
@@ -140,6 +145,25 @@ CASES: list[Case] = [
 ]
 
 
+def case_registry(case: Case) -> ToolRegistry:
+    """Each question starts with fresh finances; only outcome questions fail a leg.
+
+    Settlement intentionally posts balances and consumes mandates. A failure
+    fixture must never change the buying power used by unrelated card, bill or
+    spending questions in the catalogue.
+    """
+    household = demo_household()
+    provider = SimulatedProvider()
+    execution = ExecutionEngine(household, provider)
+    if case.expect_tool == "explain_transfer_outcome":
+        _, runs = AllocationEngine(household).allocate_month(2026, 9)
+        group = execution.build_group_from_allocation(runs[0])
+        target = max(group.legs, key=lambda leg: leg.amount.amount)
+        provider.inject(target.id, ProviderFault.TIMEOUT)
+        execution.run_group(group, settle=True)
+    return ToolRegistry(household, TaxProfile(), execution)
+
+
 def verify(agent: FinanceAgent, c: Case, choice: ToolChoice) -> dict:
     r = agent.ask(c.question, c.untrusted, choice)
     problems: list[str] = []
@@ -155,10 +179,11 @@ def verify(agent: FinanceAgent, c: Case, choice: ToolChoice) -> dict:
         if s.lower() in r.answer.lower():
             problems.append(f"answer must not contain {s!r}")
 
-    # the universal check: no figure in the answer that the tools did not produce
-    g = r.grounding or {}
-    if g.get("ungrounded"):
-        problems.append(f"ungrounded figures: {g['ungrounded']}")
+    # Check the published answer. Rejected draft figures remain in the trace,
+    # but successful calculator fallback is not an invalid published answer.
+    g = check_grounding(r.answer, r.tool_results)
+    if not g.ok:
+        problems.append(f"ungrounded figures in published answer: {g.ungrounded}")
 
     # the primary tool must not have errored
     primary = (r.tool_results or [{}])[0]
@@ -173,7 +198,7 @@ def verify(agent: FinanceAgent, c: Case, choice: ToolChoice) -> dict:
     return {"case": c, "result": r, "problems": problems}
 
 
-def execution_scenarios() -> list[dict]:
+def execution_scenarios(llm: Optional[LocalLLM] = None) -> list[dict]:
     """Section 21 behaviours a user would actually ask about, exercised
     end to end rather than asserted in isolation."""
     out = []
@@ -181,7 +206,7 @@ def execution_scenarios() -> list[dict]:
     prov = SimulatedProvider()
     eng = ExecutionEngine(hh, prov)
     reg = ToolRegistry(hh, TaxProfile(), eng)
-    agent = FinanceAgent(reg, LocalLLM(autodetect()))
+    agent = FinanceAgent(reg, llm if llm is not None else LocalLLM(autodetect()))
 
     plan, runs = AllocationEngine(hh).allocate_month(2026, 9)
     grp = eng.build_group_from_allocation(runs[0])
@@ -228,8 +253,11 @@ def execution_scenarios() -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--mock", action="store_true",
-                    help="start the local-model test double first")
+    model_mode = ap.add_mutually_exclusive_group()
+    model_mode.add_argument("--mock", action="store_true",
+                            help="start the local-model test double first")
+    model_mode.add_argument("--offline", action="store_true",
+                            help="use deterministic calculator answers without model discovery or calls")
     ap.add_argument("--verbose", "-v", action="store_true")
     ap.add_argument("--tool-choice", default="router", choices=["router", "model"])
     a = ap.parse_args()
@@ -242,17 +270,7 @@ def main() -> int:
         import os
         os.environ["FINPILOT_LLM_BASE_URL"] = "http://127.0.0.1:11434/v1"
 
-    hh = demo_household()
-    prov = SimulatedProvider()
-    execution = ExecutionEngine(hh, prov)
-    reg = ToolRegistry(hh, TaxProfile(), execution)
-    # give the transfer-failure question something real to explain
-    plan, runs = AllocationEngine(hh).allocate_month(2026, 9)
-    grp = execution.build_group_from_allocation(runs[0])
-    prov.inject(max(grp.legs, key=lambda l: l.amount.amount).id, ProviderFault.TIMEOUT)
-    execution.run_group(grp, settle=True)
-    llm = LocalLLM(autodetect())
-    agent = FinanceAgent(reg, llm)
+    llm = LocalLLM(LLMConfig() if a.offline else autodetect())
     choice = ToolChoice(a.tool_choice)
 
     health = llm.health()
@@ -273,6 +291,7 @@ def main() -> int:
     used_model = 0
     rejected = 0
     for i, c in enumerate(CASES, 1):
+        agent = FinanceAgent(case_registry(c), llm)
         out = verify(agent, c, choice)
         r, problems = out["result"], out["problems"]
         used_model += 1 if r.used_model else 0
@@ -294,7 +313,7 @@ def main() -> int:
                   f"tools {r.tools_called} · confidence {r.confidence}]")
 
     print("-" * 78)
-    for s in execution_scenarios():
+    for s in execution_scenarios(llm):
         status = "PASS" if not s["problems"] else "FAIL"
         if s["problems"]:
             failures += 1
@@ -311,6 +330,7 @@ def main() -> int:
           f"with the calculator's own wording")
     print("  legend: '·' the model wrote it, '=' the calculator's wording")
     print("=" * 78)
+    llm.close()
     return 1 if failures else 0
 
 

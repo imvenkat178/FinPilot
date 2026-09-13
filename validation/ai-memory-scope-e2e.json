@@ -1,0 +1,144 @@
+{
+  "check": "checking-followup-switch-to-protected-savings",
+  "passed": true,
+  "budget_seconds": 12,
+  "diagnostic": false,
+  "model_understanding_accepted": false,
+  "fallback": true,
+  "elapsed_seconds": 12.058,
+  "response": {
+    "question": "Explain that",
+    "answer": "You can spend about $0.00 through 2026-09-17. The lowest projected balance is $14,500.00 on 2026-09-10. The forecast includes $0.00 of required bills. $14,500.00 of protected reserves is then excluded from spending. Confidence: exact.",
+    "state": "informational",
+    "intent": "spending_allowance",
+    "tools_called": [
+      "get_spending_allowance"
+    ],
+    "used_model": false,
+    "grounding": {
+      "ok": true,
+      "ungrounded": [],
+      "checked": 6
+    },
+    "guard": {
+      "question_scan": {
+        "suspicious": false,
+        "matches": []
+      },
+      "context_scan": {
+        "suspicious": false,
+        "matches": []
+      }
+    },
+    "assumptions": [
+      "Computed from the lowest projected balance in the window, not the ending balance. A positive ending balance does not make a bill payable on the day it is due.",
+      "Credit limits, home equity, retirement holdings and pending refunds are excluded: they are not ordinary bill-paying cash."
+    ],
+    "confidence": "exact",
+    "latency_ms": 12016,
+    "evidence": [
+      {
+        "through": "2026-09-17",
+        "amount": {
+          "amount": "0.00",
+          "currency": "USD",
+          "display": "$0.00"
+        },
+        "low_point_date": "2026-09-10",
+        "low_point_balance": {
+          "amount": "14500.00",
+          "currency": "USD",
+          "display": "$14,500.00"
+        },
+        "protected": {
+          "amount": "14500.00",
+          "currency": "USD",
+          "display": "$14,500.00"
+        },
+        "required_before": {
+          "amount": "0.00",
+          "currency": "USD",
+          "display": "$0.00"
+        },
+        "confidence": "exact",
+        "assumptions": [
+          "Computed from the lowest projected balance in the window, not the ending balance. A positive ending balance does not make a bill payable on the day it is due.",
+          "Credit limits, home equity, retirement holdings and pending refunds are excluded: they are not ordinary bill-paying cash."
+        ],
+        "missing": [],
+        "_tool": "get_spending_allowance"
+      }
+    ],
+    "trace": [
+      {
+        "node": "classify",
+        "intent": "spending_allowance",
+        "tool": "get_spending_allowance",
+        "score": 3,
+        "alternatives": []
+      },
+      {
+        "node": "execute",
+        "tool": "get_spending_allowance",
+        "arguments": {
+          "days": 7,
+          "account_id": "acc_savings"
+        },
+        "ok": true
+      },
+      {
+        "node": "compose",
+        "mode": "template",
+        "reason": "model call failed: local model call failed (ReadTimeout)"
+      },
+      {
+        "node": "verify",
+        "result": "accepted",
+        "figures_checked": 6
+      }
+    ],
+    "resolved_route": {
+      "intent": "spending_allowance",
+      "tool": "get_spending_allowance",
+      "arguments": {
+        "days": 7
+      },
+      "state": "informational",
+      "score": 3,
+      "alternatives": []
+    },
+    "resolved_question": "Follow-up to: Explain that",
+    "document_sources": [],
+    "conversation_id": "conv_51e03c350f15450aae8997b09251ec05",
+    "answer_id": "ans_7ed1e5214c444b33b742643916d54667",
+    "memory_turns": 2,
+    "document_ids": [],
+    "model_status": {
+      "reachable": false,
+      "runtime": "unknown",
+      "model": "llama3.2:latest",
+      "reason": "local model request failed (ReadTimeout)",
+      "checked_at": "2026-09-13T17:06:49.064224+00:00"
+    },
+    "viewing": {
+      "page": "accounts",
+      "name": "Emergency & Annual Savings"
+    },
+    "revision": 1,
+    "workspace_changed": false,
+    "generation": {
+      "id": "ans_7ed1e5214c444b33b742643916d54667",
+      "model": "llama3.2:latest",
+      "calls": [
+        {
+          "model": "llama3.2:latest",
+          "provider": "local",
+          "status": "failed",
+          "error": "ReadTimeout",
+          "latency_ms": 12016,
+          "cost_usd": null
+        }
+      ]
+    }
+  }
+}

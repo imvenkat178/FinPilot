@@ -91,15 +91,15 @@ def exchange(body: ExchangeBody, request: Request, r: R, p: P):
     expected = preflight(r, p, request, linking=True)
     with provider(request) as client:
         access_token, item_id = client.exchange(body.public_token)
-        # A repeated exchange response must never duplicate financial records.
-        with r.db.sessions() as session:
-            existing = session.execute(select(BankConnectionRow).where(
-                BankConnectionRow.household_id == p.household_id,
-                BankConnectionRow.environment == client.config.environment,
-                BankConnectionRow.item_id == item_id)).scalar_one_or_none()
-            if existing:
-                return {"connection": public_connection(existing), "revision": r.read(p).revision}
         try:
+            # A repeated exchange response must never duplicate financial records.
+            with r.db.sessions() as session:
+                existing = session.execute(select(BankConnectionRow).where(
+                    BankConnectionRow.household_id == p.household_id,
+                    BankConnectionRow.environment == client.config.environment,
+                    BankConnectionRow.item_id == item_id)).scalar_one_or_none()
+                if existing:
+                    return {"connection": public_connection(existing), "revision": r.read(p).revision}
             accounts, institution_id, institution_name = client.account_snapshot(access_token)
             updates = client.fetch_updates(access_token, "")
             now = utcnow()
@@ -137,50 +137,18 @@ def exchange(body: ExchangeBody, request: Request, r: R, p: P):
 @router.post("/sync/{connection_id}")
 def sync(connection_id: str, request: Request, r: R, p: P):
     expected = preflight(r, p, request)
+    from ..services.bank_operations import sync as sync_bank
     with provider(request) as client:
-        with r.db.sessions() as session:
-            before = owned(session, p, connection_id)
-            require_active(client, before)
-            version, cursor = before.version, before.cursor
-            access_token = client.decrypt(before.encrypted_access_token)
-        accounts, institution_id, institution_name = client.account_snapshot(access_token)
-        updates = client.fetch_updates(access_token, cursor)
-        now = utcnow()
-        with r.transaction(p, "bank.sync", expected) as ctx:
-            row = owned(ctx.db_session, p, connection_id, lock=True)
-            require_active(client, row)
-            if row.version != version or row.cursor != cursor:
-                raise RevisionConflict("Another bank update finished first. Refresh and retry.")
-            row.institution_id, row.institution_name = institution_id, institution_name
-            apply_accounts(ctx.household, row, accounts, now)
-            imported = apply_transactions(ctx.household, row, updates["changes"])
-            row.cursor, row.version, row.last_synced_at = updates["cursor"], version + 1, now
-        request.state.revision = ctx.revision
-        return {"connection": public_connection(row), "imported": imported, "revision": ctx.revision}
+        row, imported, current_revision = sync_bank(r, p, client, connection_id, expected)
+    request.state.revision = current_revision
+    return {"connection": public_connection(row), "imported": imported, "revision": current_revision}
 
 
 @router.delete("/connections/{connection_id}")
 def disconnect(connection_id: str, request: Request, r: R, p: P):
-    preflight(r, p, request)
+    expected = preflight(r, p, request)
+    from ..services.bank_operations import disconnect as disconnect_bank
     with provider(request) as client:
-        with r.db.sessions() as session:
-            before = owned(session, p, connection_id)
-            if before.status == "disconnected":
-                return {"connection": public_connection(before), "revision": r.read(p).revision}
-            require_active(client, before)
-            access_token = client.decrypt(before.encrypted_access_token)
-        client.remove(access_token)
-        # After confirmed revocation, record it even if an unrelated workspace
-        # edit changed the revision while the provider call was running.
-        with r.transaction(p, "bank.disconnect") as ctx:
-            row = owned(ctx.db_session, p, connection_id, lock=True)
-            row.status, row.encrypted_access_token = "disconnected", None
-            row.disconnected_at, row.version = utcnow(), row.version + 1
-            for account_id in (row.account_mapping or {}).values():
-                account = ctx.household.accounts.get(account_id)
-                if account:
-                    account.connection_healthy = False
-                    account.connection_issue = "Bank connection disconnected; saved records are retained."
-                    account.provenance.verification = Verification.STALE
-        request.state.revision = ctx.revision
-        return {"connection": public_connection(row), "revision": ctx.revision}
+        row, current_revision = disconnect_bank(r, p, client, connection_id, expected)
+    request.state.revision = current_revision
+    return {"connection": public_connection(row), "revision": current_revision}

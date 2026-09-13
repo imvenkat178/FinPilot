@@ -35,13 +35,25 @@ For hosting, use the nonroot Docker image, PostgreSQL, Alembic migrations, and H
 | Cash flow | Dated projections, protected cash, spending allowance and operating-buffer calculations. |
 | Credit and loans | Debt strategy comparisons, extra payments, mortgage scenarios, utilization and reward calculations. |
 | Tax and protection | Editable assumptions, savings/debt comparisons, liquidity tiers and coverage calculations. |
-| Assistant | Contextual questions, calculator evidence, saved recent conversations, optional model explanations and calculator fallback. |
+| Assistant | Dedicated AI workspace and contextual drawer, shared history, 80 typed workflow controls, compound reads, reviewed edits, receipts and local-model interpretation. |
+| Documents | Private PDF/TXT/Markdown library, conversation source selection, matching excerpts and clickable citations. |
+| MCP | Import approved source data into the library; issue and revoke scoped read access for compatible MCP clients. |
 | Bank linking | Configurable Plaid Link for supported US checking, savings and money-market accounts; encrypted tokens, cursor sync and disconnect. |
 | Sample execution | Reviewed, explicitly confirmed payment simulation, current preflight checks, independent payment legs, idempotency, recovery and audit records. |
 
 Bank linking stays unavailable until the operator configures provider credentials and a token-encryption key. It imports cached bank snapshots, not guaranteed realtime balances. The adapter has mocked integration tests; live bank linking has not been exercised here. Credit/loan terms can be entered manually. Live money movement is not implemented: real workspaces cannot execute simulated settlements against their recorded balances.
 
 Email/password authentication does not include email verification, password recovery, MFA, or household invitations. Those require additional identity/product integrations before a public rollout that depends on them.
+
+## Conversations, documents and MCP
+
+Open **Ask FinPilot** to start a saved conversation. Follow-up questions retain recent context. **Conversations** lets you resume or delete an earlier conversation; the plus button starts a new one. An active conversation also has its own URL, so refreshing the page can reopen it after authentication. Chat contents are stored on the server under your account, not in browser local storage.
+
+Choose **Documents & sources ‚Üí Documents** to upload PDF, TXT or Markdown files up to 2 MB. PDFs need selectable text. Select up to ten documents for a conversation, then return to chat and ask a question. Click a document citation to review the original page excerpt. Uploads inform answers without changing account balances or other financial records. Deleting a document removes it from the library and future retrieval. Excerpts already saved in a conversation remain until that conversation is deleted.
+
+Under **Connections**, connect to a source enabled by your workspace operator. Browse its available read operations and resources, supply any required arguments, and explicitly import the result. Imported data becomes a document that you can select for chat. External connections stay unavailable until the operator configures approved MCP servers and encrypted token storage.
+
+Under **MCP access**, create an expiring read token for your own compatible MCP client. The token is displayed once. Enter the Python executable and FinPilot project paths on the computer running that client, then copy the generated JSON configuration. The configuration includes your server URL and read token and works from any client working directory. Access expires within 30 days and can be revoked at any time. These tokens cannot change financial records or move money. Operator configuration is covered in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Architecture and latency
 
@@ -76,7 +88,7 @@ Measured on Windows 11 / Python 3.12 with disposable SQLite WAL databases and th
 
 The 5,000-row CSV import took 595 ms. A held mock inference request remained pending while a financial read and write completed in 265 ms and 351 ms; the benchmark asserts both finish before the mock model is released. Cache validity tests cover another worker's commit, membership removal and calendar rollover.
 
-These are local request timings, not a hosted latency guarantee. They exclude browser rendering, network/TLS and PostgreSQL contention. ìColdî clears application caches while database and operating-system caches remain warm. Full snapshot decoding and writes still scale with transaction history; the bounded SQL history endpoint and warm bootstrap avoid that work. Account deletion is not an exposed operation, so the benchmark measures supported create/read/update routes.
+These are local request timings, not a hosted latency guarantee. They exclude browser rendering, network/TLS and PostgreSQL contention. ‚ÄúCold‚Äù clears application caches while database and operating-system caches remain warm. Full snapshot decoding and writes still scale with transaction history; the bounded SQL history endpoint and warm bootstrap avoid that work. Account deletion is not an exposed operation, so the benchmark measures supported create/read/update routes.
 
 ## Project layout
 
@@ -89,7 +101,7 @@ finpilot/
   models.py       Financial records, dated occurrences and authority
   engine/         Allocation, cash flow, debt, cards, tax and coverage
   execution/      Sample payment lifecycle and recovery
-  integrations/   Optional read-only bank adapter
+  integrations/   Bank adapter, approved MCP clients and read-only MCP bridge
   ai/             Intent routing, model client and answer checks
   web/            Studio pages, forms, account details and assistant
 alembic/          Reviewed database migrations
@@ -104,6 +116,8 @@ The `prototype/` directory retains the earlier design artifact. The running appl
 .venv/Scripts/python.exe -m pytest -q
 node tests/management_frontend.mjs
 node tests/execution_frontend.mjs
+node tests/bank_frontend.mjs
+node tests/assistant_frontend.mjs
 # Requires the local server; creates an isolated sample QA account:
 node tests/frontend.mjs
 ```
@@ -111,3 +125,39 @@ node tests/frontend.mjs
 Tests cover financial examples, payment retries and returns, occurrence accounting, authentication and CSRF, tenant isolation, stale revisions, concurrent writers, persistence across restarts, imports, assistant history, model fallback and migrations. Bank tests use mocked provider responses and synthetic tokens. Browser verification also exercises the new forms against the actual local API and database.
 
 The existing Starlette/AnyIO deprecation warning comes from the installed test-client dependency; it does not fail the suite.
+
+
+## AI validation and MCP status
+
+The assistant combines deterministic financial tools with a local OpenAI-compatible model, private conversation memory and document retrieval. MCP supports a read-only stdio bridge and imports from approved Streamable HTTP servers. See [MCP.md](MCP.md) for setup; Plaid synchronization continues to use direct REST calls.
+
+Legacy model tool execution is read-only. The workflow planner can also prepare catalogued actions for explicit review; it cannot confirm them or execute fabricated write tools. Authenticated viewing context selects account-specific calculation inputs. The six most recent conversation turns provide bounded context; financial questions recalculate against current workspace data. Documents use indexed lexical retrieval and model-selected, exact source excerpts with citations. Generated figures and selected action claims are checked, which does not guarantee semantic correctness or financial suitability.
+
+Run the opt-in evaluation against an already installed, running local model:
+
+```powershell
+$env:FINPILOT_LLM_BASE_URL='http://127.0.0.1:11434/v1'
+$env:FINPILOT_LLM_MODEL='llama3.2:latest'
+.venv/Scripts/python.exe scripts/evaluate_ai.py --output .local/ai-evaluation.json
+```
+
+The evaluator requires a reachable real model and at least one accepted model answer. It records actual completions, accepted model answers, calculator fallbacks, response timings, authenticated API checks and failures separately. It uses fictional fixtures and disposable SQLite workspaces. `--timeout 30` allows a longer diagnostic budget; the application default remains 12 seconds. Failure cooldown is disabled only in the evaluator so each case attempts the model. `--api-only` runs authentication, saved-answer, tenant-isolation and live-answer checks without the question catalogue. `--tool-choice model --only 13` additionally exercises actual model tool selection. Reports can contain the fictional questions, evidence and generated drafts; they never include endpoint credentials.
+
+For calculator-only catalogue checks, use `.venv/Scripts/python.exe -m tests.query_suite --offline`. These are not live-model tests. See [AI_VALIDATION.md](AI_VALIDATION.md) for the latest measured results and remaining gaps.
+
+
+## Complete workflows through chat
+
+Open **AI workspace** in the navigation. Ask naturally or choose **Workflows** to use validated forms inside the conversation. Financial changes show exact values and calculated effects before **Confirm**. **Edit**, **Refresh preview** and **Cancel** never save financial changes. Typing yes or confirm cannot execute a proposal.
+
+Examples: "Update bill Mortgage payment amount to 1999.99", "Find transactions for Music", or a compound request to find charges, consult a selected document and update a bill. The catalog covers accounts, transactions, income events, bills, goals, rules, debt/card/tax inputs, forecasts, document/MCP sources and sample payments. CSV files use the upload control; credentials remain in secure forms.
+
+The installed local llama3.2:latest is evaluated without a cloud substitute. Controls and calculator fallbacks are not counted as successful model understanding. See [AI_VALIDATION.md](AI_VALIDATION.md) for results and limits.
+
+    .venv/Scripts/python.exe -m pytest -q
+    Get-ChildItem tests/*frontend.mjs | ForEach-Object { node $_.FullName }
+    .venv/Scripts/python.exe -m scripts.evaluate_workflows --paraphrases --output .local/llama-workflows-normal.json
+
+The last command runs 140 sequential cases against disposable fictional workspaces, actual MCP SDK fixtures and mocked bank integrations. It compares exact canonical arguments and only confirms correctly interpreted fictional actions. A diagnostic --timeout 60 run is reported separately and does not establish normal-budget acceptance.
+
+Current application verification and local Llama latency/cost measurements: [end-to-end validation](END_TO_END_VALIDATION.md). The original [AI implementation audit](AI_VALIDATION.md) remains as a historical baseline.

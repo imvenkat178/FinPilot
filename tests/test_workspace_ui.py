@@ -170,7 +170,11 @@ def test_assets_are_served_without_exposing_files_outside_web(client):
     asset = client.get("/assets/index.html")
     assert root.status_code == asset.status_code == 200
     assert "text/html" in asset.headers["content-type"]
-    assert asset.text.splitlines() == root.text.splitlines()
+    import re
+    # Root versions the relative module tree; the retained static HTML has
+    # otherwise identical content and still cannot expose files outside WEB.
+    normalized = re.sub(r"/assets/v[0-9a-f]{16}/", "/assets/", root.text)
+    assert asset.text.splitlines() == normalized.splitlines()
     assert client.get("/assets/not-a-real-file.js").status_code == 404
     assert client.get("/assets/%2E%2E/api/app.py").status_code == 404
 

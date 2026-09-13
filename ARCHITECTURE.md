@@ -83,7 +83,17 @@ Sync is initiated by the user; scheduled sync, bank webhooks, update-mode instit
 
 ## AI latency and financial correctness
 
-Normal questions use a deterministic intent router and real calculators. The model only explains their results. The original numeric grounding, unsupported-action checks, untrusted-content checks, and scenario labels remain in the answer path. Empty, malformed, unavailable, or rejected model responses fall back to calculator wording with `used_model=false`.
+Straightforward questions use the deterministic router and calculators. A bounded capability planner handles broader requests and compounds; generated plans can prepare actions for review but cannot execute them. The original numeric grounding, unsupported-action checks, untrusted-content checks, and scenario labels remain in the answer path. Empty, malformed, truncated, unavailable, or rejected model responses fall back to calculator wording with `used_model=false`.
+
+The legacy financial tool-selection path is restricted to tools explicitly marked read-only. The schema list excludes mutation tools, and execution independently rejects fabricated or unclassified names. The legacy function-calling route stays read-only. Pause, skip and payment preparation are available through the reviewed executor described below. Shared argument validation rejects malformed types, nonfinite numbers, oversized strings, and out-of-range dates/durations before calculations begin. If a model selects unrelated evidence, the deterministic routed result remains the primary answer source and controls its template/state.
+
+Numeric checks recognize currency symbols, currency words/codes, percentages, and thousand/million/billion shorthand. Numeric IDs, account masks, and free-form metadata cannot authorize monetary claims; positive constants also require evidence. These checks are not semantic verification: they can still miss a supported value assigned to the wrong metric, a reversed comparison, or a missing caveat. The tool result and its source assumptions remain available for review; generated prose is not guaranteed correct merely because numeric checks pass.
+
+Legacy model-selected function schemas include only explicitly classified read-only tools. An independent execution check rejects invented mutation names, malformed arguments and excessive forecast horizons before invoking a calculator. The default router and dedicated authenticated write endpoints retain their explicit action paths. A selected tool cannot substitute a payload of a different shape into the routed answer template.
+
+The session validates the viewed account before passing its ID as a default to account-specific tools; card utilization resolves the associated card record. This is a viewing context, not a new authorization grant. Answers and their evidence are saved per user and household. Conversations now persist per user and household. The six most recent completed turns provide bounded context; read-only follow-up parameters are resolved and calculators rerun against fresh data.
+
+MCP is implemented through the official Python SDK: a stdio bridge exposes authenticated read-only financial tools, while approved Streamable HTTP sources can be imported into private document retrieval. Configuration, credential scope and protocol limits are documented in [MCP.md](MCP.md). Plaid remains a direct REST integration.
 
 Latency controls are deliberately separate from calculation correctness:
 
@@ -118,3 +128,59 @@ PostgreSQL supports multiple application processes, but the dashboard cache, mod
 The September 11, 2026 local run (12 repetitions, Python 3.12 / Windows 11) measured 5,000-row bootstrap medians of 132 ms with application caches cleared and 16 ms with caches populated. Indexed first-page history was 6 ms; account updates were 262 ms. The full results, measurement definitions and command are in README's latency section; `--output` saves individual samples as JSON.
 
 The optimization deliberately keeps the aggregate consistency boundary. It avoids encoding thousands of transactions that would be omitted from the response and avoids reading the complete SQL transaction projection for unrelated edits. Scalar transaction field snapshots detect in-place provider corrections before committing projection changes. Aggregate JSON decoding/encoding remains proportional to history size, and deep offset pagination grows with offset. These local ASGI timings exclude browser, network and hosted PostgreSQL effects; separating historical ledger storage from the mutable aggregate is a future scaling step, not a capability claimed by this benchmark.
+
+
+## Browser asset updates
+
+The root document uses one content fingerprint for its CSS and JavaScript URL prefix. Relative imports therefore stay inside the same version, preventing an updated entry module from loading an old assistant or state module from browser cache. Static responses revalidate with `Cache-Control: no-cache`; the legacy `/assets/` path remains available. The fingerprint is established on process startup, so restart application workers after changing web assets. Rolling deployments still need consistent artifact delivery at the hosting layer.
+
+The current workflow, local-model and AI/MCP validation results are documented in [AI_VALIDATION.md](AI_VALIDATION.md).
+
+
+## Conversation and source persistence
+
+`conversations` owns tenant/user scope, selected document IDs, viewing context, title, version and a short generation lease. `conversation_generations` assigns an addressable answer ID before inference and tracks pending/completed/failed/interrupted states, timestamps, response evidence and model usage when supplied by the local runtime. The existing answer history remains compatible. Deleting a conversation removes its generations and matching legacy history entries.
+
+A conditional database update acquires the conversation lease; a second simultaneous request receives 409. No database session or transaction remains open during inference. A 180-second lease recovers abandoned requests. Completion checks that its generation still owns the lease. Current financial inputs are read fresh; prior model text and documents cannot authorize a mutation. Short conversational requests can reuse only an explicitly read-only calculator with validated changed parameters. Explicit remember statements are acknowledged immediately and scoped to that conversation.
+
+Documents are private to a user within a household. Uploads accept UTF-8 TXT/Markdown and text-bearing PDF; source bytes are discarded after text extraction. PDF parsing runs in a bounded subprocess. Content hashes deduplicate private uploads. Chunk/term postings support indexed lexical BM25-style search without embedding inference or a vector service. Up to ten selected sources, six retrieved excerpts and six recent turns bound the model context. Summary requests can read bounded opening excerpts from selected documents; this is not a complete long-document summary.
+
+Retrieved passages are untrusted. The model selects full candidate passages; the server accepts only exact matches, preserves source/page/chunk citations and visibly marks truncated excerpts. Invalid selections fall back to ranked extracts. This avoids treating document numbers as verified balances. Retrieval supports lexical matching, not semantic embeddings or OCR. Deleting a document removes its chunks and term postings; previous chat quotations remain until the corresponding conversation is deleted.
+
+Private data is not placed in browser local storage. Conversation URLs contain an opaque ID and still require authentication. PostgreSQL migrations 0003 through 0005 add document, conversation/generation and MCP tables; local SQLite initialization creates the same new tables. A shared database is required for hosted replicas; model/MCP admission limits remain per worker.
+
+The conversation lease also compares the version read with inherited context, rejecting an interleaved stale request before it can overwrite newer selections. Saved follow-up routes contain language parameters, while account/card identifiers are selected again from the current view. Legacy routes with injected identifiers are rebound on use. MCP setup metadata separates local read-grant availability from external-source configuration and never exposes server paths or credentials.
+
+
+## Reviewed AI workflows
+
+The typed catalog in finpilot/ai/capabilities.py declares 80 capabilities: calculator and record reads, local edits, private source changes, provider imports, navigation and secure handoffs. Each specifies bounded JSON Schema inputs, result format, required role/scope, availability and review requirements. Authenticated discovery adds user-owned record choices without credentials.
+
+POST /api/ask preserves its previous fields and adds parts, workflow, explanation and action receipts. Structured parts contain authoritative financial results, source references, clarification controls, navigation, handoffs and proposal references. The AI workspace and contextual drawer share the same conversations and rendering modules. Structured workflow controls work when language inference is unavailable.
+
+The planner shortlists capabilities, makes at most one schema-constrained planning call and validates the returned names and arguments against the full catalog. It accepts at most four operations. Explicit compound requests use required, ordered task slots so one task cannot be silently dropped or leak its filters into another; the slots normalize to the existing operations array before execution. Generated SQL, arbitrary URLs, code, confirmation capabilities and unclassified mutation tools are never executable. Explicitly requested writes produce proposals; retrieved text and conversational agreement cannot confirm them. Independent reads complete while missing inputs are clarified. Corrections revise a pending proposal without creating a second execution identity.
+
+Workflow planning uses at most one model call within the shared 12-second inference budget. Request-specific schemas shortlist relevant fields and tenant-owned record labels, preserve explicit decimal values, convert percentage units, and omit unrequested defaults. Missing required values become server-owned clarifications. Clear commands and recognized compound reads use deterministic routes with no inference. Workflow explanations render verified server results without a second generic introduction call; legacy calculator and document explanation guards remain active. The API reports planner interpretation, explanation acceptance, model usage and fallback separately.
+
+### Local consistency
+
+Financial commands are shared by conventional screens and chat. Preview executes the same commands on a detached snapshot and shows before/after fields, regenerated expected paychecks, cleared mandates and planning-only allocations. Opaque generated IDs and timestamps are server assigned; receipts contain committed identities.
+
+Migrations 0006-0008 add proposals/receipts, pending workflow state and private CSV attachments. Proposals bind user, household, conversation, canonical arguments, financial revision, displayed version and a 15-minute expiry. Confirmation accepts only identity/version. Editing or refreshing increments the version. Pending workflows survive beyond the six-turn language context.
+
+Execution rechecks membership, role, ownership, current revision, planning date, expiry and prerequisites. Local batches and receipts commit in one Runtime.transaction. Conditional claims and a receipt primary key enforce one execution identity. Duplicate confirmations return the original receipt; stale previews require refresh. Saved answers receive receipts and the UI refreshes affected data.
+
+Private deletions share ownership validation with conventional controls. CSV data lives in a conversation-owned immutable attachment. The normal parser checks mapping, limits, duplicates and balance-preserving imports; chat can resolve only an attachment belonging to the same user, household and conversation.
+
+### Provider boundaries
+
+Provider operations are separate from atomic local batches. A durable claim commits before remote work, with a three-minute abandoned-operation lease. Bank version, cursor and revision checks remain active. Failures/interrupted operations become outcome_unknown and are never automatically retried. External effects cannot be rolled back by the local database; uncertain outcomes require inspection and a fresh review.
+
+Network calls and inference run outside database transactions. MCP uses the actual SDK with operator-approved servers, tools and resources. Credentials and once-shown grants stay in dedicated secure forms.
+
+The modular monolith retains its per-household aggregate consistency boundary. Hosted production requires PostgreSQL. Local SQLite concurrency/migration tests and PostgreSQL DDL compilation do not establish hosted load or locking behavior; deployment-database verification remains outstanding.
+
+
+The planner builds record context only for relevant entity kinds; unrelated transaction history is not materialized. MCP imports validate the configured source and tool allowlist both before showing a preview and before claiming execution. A known revoked-configuration error leaves the proposal unexecuted; failures after remote work starts still use the durable uncertain-outcome path.
+
+Current end-to-end verification, PostgreSQL checks and measured local inference/API latency are recorded in [END_TO_END_VALIDATION.md](END_TO_END_VALIDATION.md).

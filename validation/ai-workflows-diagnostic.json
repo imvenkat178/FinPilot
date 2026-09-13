@@ -1,0 +1,240 @@
+{
+  "model": "llama3.2:latest",
+  "provider": "local Ollama",
+  "budget_seconds": 60.0,
+  "diagnostic": true,
+  "sequential": true,
+  "cases": [
+    {
+      "capability": "get_buffer",
+      "variant": 0,
+      "question": "Show my checking buffer",
+      "expected_arguments": {
+        "account_id": "acc_checking"
+      },
+      "budget_seconds": 60.0,
+      "diagnostic": true,
+      "http_status": 200,
+      "latency_ms": 2110,
+      "planner": {
+        "attempted": true,
+        "accepted": false,
+        "schema_valid": true
+      },
+      "interpretation_accepted": false,
+      "actual_operations": [
+        {
+          "capability": "get_buffer",
+          "arguments": {
+            "account_id": "123456789"
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "model": "llama3.2:latest",
+          "usage": {
+            "prompt_tokens": 188,
+            "prompt_tokens_details": {
+              "cached_tokens": 95
+            },
+            "completion_tokens": 25,
+            "total_tokens": 213
+          },
+          "finish_reason": "stop",
+          "provider": "local",
+          "status": "completed",
+          "latency_ms": 2063,
+          "cost_usd": null
+        }
+      ],
+      "explanation": {
+        "attempted": false,
+        "accepted": false,
+        "reason": "explicit_control"
+      },
+      "fallback": true,
+      "answer": "Use the control below to continue this workflow.",
+      "proposal_created": false,
+      "confirmed": false,
+      "answer_persisted": true
+    },
+    {
+      "capability": "create_income",
+      "variant": 0,
+      "question": "Create a monthly income source called Bonus, net amount 250, deposited into Everyday Checking, starting 2026-10-01",
+      "expected_arguments": {
+        "record_type": "source",
+        "name": "Bonus",
+        "net_amount": "250",
+        "deposit_account_id": "acc_checking",
+        "next_date": "2026-10-01",
+        "cadence": "monthly"
+      },
+      "budget_seconds": 60.0,
+      "diagnostic": true,
+      "http_status": 200,
+      "latency_ms": 4328,
+      "planner": {
+        "attempted": true,
+        "accepted": false,
+        "schema_valid": true
+      },
+      "interpretation_accepted": false,
+      "actual_operations": [
+        {
+          "capability": "create_income",
+          "arguments": {
+            "record_type": "source",
+            "name": "Bonus",
+            "net_amount": "250",
+            "deposit_account_id": "acc_checking",
+            "next_date": "2026-10-01"
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "model": "llama3.2:latest",
+          "usage": {
+            "prompt_tokens": 428,
+            "prompt_tokens_details": {
+              "cached_tokens": 396
+            },
+            "completion_tokens": 84,
+            "total_tokens": 512
+          },
+          "finish_reason": "stop",
+          "provider": "local",
+          "status": "completed",
+          "latency_ms": 4296,
+          "cost_usd": null
+        }
+      ],
+      "explanation": {
+        "attempted": false,
+        "accepted": false,
+        "reason": "explicit_control"
+      },
+      "fallback": true,
+      "answer": "Use the control below to continue this workflow.",
+      "proposal_created": false,
+      "confirmed": false,
+      "answer_persisted": true
+    },
+    {
+      "capability": "update_tax",
+      "variant": 0,
+      "question": "Set federal marginal tax rate to 25 percent",
+      "expected_arguments": {
+        "federal_marginal": "0.25"
+      },
+      "budget_seconds": 60.0,
+      "diagnostic": true,
+      "http_status": 200,
+      "latency_ms": 2719,
+      "planner": {
+        "attempted": true,
+        "accepted": false,
+        "schema_valid": true
+      },
+      "interpretation_accepted": false,
+      "actual_operations": [
+        {
+          "capability": "update_tax",
+          "arguments": {
+            "federal_marginal": "25 percent"
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "model": "llama3.2:latest",
+          "usage": {
+            "prompt_tokens": 453,
+            "prompt_tokens_details": {
+              "cached_tokens": 438
+            },
+            "completion_tokens": 49,
+            "total_tokens": 502
+          },
+          "finish_reason": "stop",
+          "provider": "local",
+          "status": "completed",
+          "latency_ms": 2688,
+          "cost_usd": null
+        }
+      ],
+      "explanation": {
+        "attempted": false,
+        "accepted": false,
+        "reason": "explicit_control"
+      },
+      "fallback": true,
+      "answer": "Use the control below to continue this workflow.",
+      "proposal_created": false,
+      "confirmed": false,
+      "answer_persisted": true
+    },
+    {
+      "capability": "import_mcp",
+      "variant": 0,
+      "question": "Import approved statement tool from Report source as a document",
+      "expected_arguments": {
+        "record_id": "mcc_9550437473d34841ab02f1fc2c703b84",
+        "tool_name": "statement"
+      },
+      "budget_seconds": 60.0,
+      "diagnostic": true,
+      "http_status": 200,
+      "latency_ms": 5062,
+      "planner": {
+        "attempted": true,
+        "accepted": false,
+        "schema_valid": true,
+        "reason": "validation_error"
+      },
+      "interpretation_accepted": false,
+      "actual_operations": [
+        {
+          "capability": "import_mcp",
+          "arguments": {
+            "record_id": "mcc_9550437473d34841ab02f1fc2c703b84",
+            "tool_name": "approved statement",
+            "resource_uri": "Report source"
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "model": "llama3.2:latest",
+          "usage": {
+            "prompt_tokens": 256,
+            "prompt_tokens_details": {
+              "cached_tokens": 149
+            },
+            "completion_tokens": 81,
+            "total_tokens": 337
+          },
+          "finish_reason": "stop",
+          "provider": "local",
+          "status": "completed",
+          "latency_ms": 5016,
+          "cost_usd": null
+        }
+      ],
+      "explanation": {
+        "attempted": false,
+        "accepted": false,
+        "reason": "server-rendered results"
+      },
+      "fallback": true,
+      "answer": "1 validation error for ImportBody\n  Value error, Choose exactly one MCP tool or resource. [type=value_error, input_value={'tool_name': 'approved s...e_uri': 'Report source'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+      "proposal_created": false,
+      "confirmed": false,
+      "answer_persisted": true
+    }
+  ],
+  "accepted": 0,
+  "total": 4
+}

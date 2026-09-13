@@ -9,8 +9,8 @@ from finpilot.ai.llm import LocalLLM, LLMConfig
 
 
 @contextmanager
-def authenticated_client(*, sample=True):
-    app = create_app('sqlite:///:memory:', llm=LocalLLM(LLMConfig()))
+def authenticated_client(*, sample=True, database_url="sqlite:///:memory:"):
+    app = create_app(database_url, llm=LocalLLM(LLMConfig()))
     with TestClient(app) as client:
         response = client.post('/api/auth/register', json={
             'name': 'API Test User', 'email': f'test-{uuid4().hex}@example.com',

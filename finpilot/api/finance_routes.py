@@ -94,43 +94,40 @@ class AuthorizationIn(BaseModel):
 
 @router.post("/policies/{policy_id}/authorize")
 def authorize_policy(policy_id: str, body: AuthorizationIn, request: Request, p: P, r: R):
-    with r.transaction(p, "policy.authorize", revision(request)) as ctx:
-        policy = ctx.household.policies[policy_id]
-        mandate = Mandate(entity_id=policy.entity_id, jurisdiction=ctx.household.jurisdiction)
-        policy.mandate = mandate
-        mandate.mode, mandate.authorized_by, mandate.authorized_at = body.mode, p.user_id, now()
-        mandate.per_run_cap = Money(body.per_run_cap, ctx.household.base_currency)
-        result = {"policy": policy_id, "mode": mandate.mode.value, "active": mandate.active,
-                  "authorized_by": p.user_id, "per_run_cap": mandate.per_run_cap.to_json(),
-                  "note": "Authority is scoped to this saved rule in the simulated payment provider."}
+    from ..services.commands import execute
+    with r.transaction(p, 'policy.authorize', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'authorize_rule', {"record_id":policy_id,"mode":body.mode.value,"per_run_cap":str(body.per_run_cap)})
     request.state.revision = ctx.revision
     return result
 
 
 @router.post("/policies/{policy_id}/pause")
 def pause_policy(policy_id: str, request: Request, p: P, r: R, paused: bool = True):
-    with r.transaction(p, "policy.pause" if paused else "policy.resume", revision(request)) as ctx:
-        ctx.household.policies[policy_id].paused = paused
+    from ..services.commands import execute
+    with r.transaction(p, 'policy.pause' if paused else 'policy.resume', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, ("pause_rule" if paused else "resume_rule"), {"record_id":policy_id})
     request.state.revision = ctx.revision
-    return {"policy": policy_id, "paused": paused}
+    return result
 
 
 @router.post("/policies/{policy_id}/skip-next")
 def skip_next_policy(policy_id: str, request: Request, p: P, r: R):
-    with r.transaction(p, "policy.skip", revision(request)) as ctx:
-        result = ctx.registry.skip_next_occurrence(policy_id)
-        if "error" in result:
-            raise HTTPException(404, result["error"])
+    from ..services.commands import execute
+    with r.transaction(p, 'policy.skip', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'skip_rule', {"record_id":policy_id})
     request.state.revision = ctx.revision
     return result
 
 
 @router.post("/bills/{bill_id}/pay-once")
 def pay_bill_once(bill_id: str, request: Request, p: P, r: R, occurrence_date: date | None = None):
-    with r.transaction(p, "payment.draft", revision(request)) as ctx:
-        result = ctx.registry.pay_bill_once(bill_id, occurrence_date=occurrence_date.isoformat() if occurrence_date else None)
-        if "error" in result:
-            raise HTTPException(404, result["error"])
+    from ..services.commands import execute
+    with r.transaction(p, 'payment.draft', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'draft_bill_payment', {"record_id":bill_id,**({"occurrence_date":occurrence_date.isoformat()} if occurrence_date else {})})
     request.state.revision = ctx.revision
     return result
 
@@ -194,16 +191,12 @@ def execution_build(request: Request, p: P, r: R,
                     year: Optional[int] = Query(None, ge=1900, le=2200),
                     month: Optional[int] = Query(None, ge=1, le=12),
                     income_event_id: str | None = Query(None, max_length=100)):
-    with r.transaction(p, "payment.build", revision(request)) as ctx:
-        hh = ctx.household
-        _, runs = AllocationEngine(hh).allocate_month(year or hh.as_of.year, month or hh.as_of.month)
-        if income_event_id:
-            runs = [run for run in runs if run.income_event_id == income_event_id]
-            if not runs:
-                raise HTTPException(404, "Paycheck not found in the selected planning month.")
-        groups = [ctx.execution.build_group_from_allocation(run).to_json() for run in runs]
+    from ..services.commands import execute
+    with r.transaction(p, 'payment.build', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'build_payment_drafts', {k:v for k,v in {"year":year,"month":month,"income_event_id":income_event_id}.items() if v is not None})
     request.state.revision = ctx.revision
-    return {"groups": groups, "note": "Payment drafts only. Nothing has been submitted."}
+    return result
 
 
 class SimulationIn(BaseModel):
@@ -212,45 +205,48 @@ class SimulationIn(BaseModel):
 
 @router.post("/execution/run/{group_id}")
 def execution_run(group_id: str, body: SimulationIn, request: Request, p: P, r: R):
+    from ..services.commands import execute
     if not body.confirm_simulation:
         raise HTTPException(422, "Review and confirm the simulated payment first.")
-    with r.transaction(p, "payment.simulate", revision(request)) as ctx:
-        if not ctx.household.payment_sandbox:
-            raise HTTPException(403, "Payment simulation is available only in sample workspaces. Real planning balances remain unchanged.")
-        result = ctx.execution.run_group(ctx.execution.groups[group_id], settle=True)
+    if not r.read(p).household.payment_sandbox:
+        raise HTTPException(403, "Payment simulation is available only in sample workspaces.")
+    with r.transaction(p, 'payment.simulate', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'simulate_payment', {"record_id":group_id})
     request.state.revision = ctx.revision
     return result
 
 
 @router.post("/execution/recover/{leg_id}")
 def execution_recover(leg_id: str, request: Request, p: P, r: R):
-    with r.transaction(p, "payment.recover", revision(request)) as ctx:
-        if not ctx.household.payment_sandbox:
-            raise HTTPException(403, "Simulated payment recovery is available only in sample workspaces.")
-        leg = ctx.execution._find_leg(leg_id)
-        if leg is None:
-            raise HTTPException(404, "Payment not found.")
-        if leg.state == LegState.OUTCOME_UNKNOWN:
-            ctx.execution.recover_unknown(leg)
-        result = {"leg": leg.to_json(), "action": "Checked the original provider identity; no replacement was submitted."}
+    from ..services.commands import execute
+    if not r.read(p).household.payment_sandbox:
+        raise HTTPException(403, "Payment simulation is available only in sample workspaces.")
+    with r.transaction(p, 'payment.recover', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'recover_payment', {"record_id":leg_id})
     request.state.revision = ctx.revision
     return result
 
 
 @router.post("/execution/pause-all")
 def pause_all(request: Request, p: P, r: R):
-    with r.transaction(p, "execution.pause", revision(request)) as ctx:
-        result = ctx.execution.pause_all()
+    from ..services.commands import execute
+    with r.transaction(p, 'execution.pause', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'pause_execution', {})
     request.state.revision = ctx.revision
     return result
 
 
 @router.post("/execution/resume")
 def resume_all(request: Request, p: P, r: R):
-    with r.transaction(p, "execution.resume", revision(request)) as ctx:
-        ctx.execution.paused = False
+    from ..services.commands import execute
+    with r.transaction(p, 'execution.resume', revision(request)) as ctx:
+        ctx.actor_id = p.user_id
+        result = execute(ctx, 'resume_execution', {})
     request.state.revision = ctx.revision
-    return {"globally_paused": False, "note": "Future eligible runs may resume. Canceled drafts remain canceled."}
+    return result
 
 
 @router.get("/execution/groups")

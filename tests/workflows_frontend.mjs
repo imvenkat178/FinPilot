@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import {S} from '../finpilot/web/core.js';
+import {workflowPartsHTML,handleWorkflowAction,resetWorkflowUI,rememberProposals,shiftDecimal,initializeWorkflowUI,handleWorkflowSubmit} from '../finpilot/web/workflows.js';
+S.session={user:{id:'owner'},csrf_token:'csrf'};
+S.revision=7;
+const preview={entries:[{capability:'update_bill',arguments:{record_id:'bill_1',amount:'19.99'},
+  reference_labels:{record_id:'Music'},before:{amount:{amount:'12.99',currency:'USD'}},after:{amount:{amount:'19.99',currency:'USD'}},
+  effects:['No payment submitted.']}],mode:'write'};
+const p={id:'act_1',version:2,revision:7,status:'proposed',expires_at:'2030-01-01T12:00:00Z',preview,operations:[{capability:'update_bill',arguments:{record_id:'bill_1',amount:'19.99'}}]};
+let html=workflowPartsHTML({parts:[{type:'proposal',proposal:p}]});
+assert.match(html,/Music/);
+assert.match(html,/data-version="2"/);
+assert.match(html,/Confirm/);
+assert.match(html,/12.99/);
+assert.match(html,/19.99/);
+rememberProposals([{...p,version:1}]);
+assert.match(workflowPartsHTML({parts:[{type:'proposal',proposal:{...p,version:1}}]}),/data-version="2"/);
+const events=[],requests=[];
+const node={dataset:{proposalId:'act_1'},set outerHTML(value){html=value}};
+globalThis.document={querySelectorAll:()=>[node],dispatchEvent:e=>events.push(e.type)};
+const receipt={status:'succeeded',revision:8,results:[{id:'bill_1',amount:'19.99'}],proposal_id:p.id,proposal_version:2};
+globalThis.fetch=async(path,opts)=>{
+  requests.push({path,body:JSON.parse(opts.body),method:opts.method});
+  return {ok:true,status:200,headers:{get:()=>null},json:async()=>({...p,status:'succeeded',receipt})};
+};
+await handleWorkflowAction({dataset:{workflow:'confirm',id:p.id,version:'2'},disabled:false,isConnected:true});
+assert.deepEqual(requests,[{path:'/api/assistant/proposals/act_1/confirm',body:{version:2},method:'POST'}]);
+assert.deepEqual(events,['finpilot-data-changed']);
+assert.doesNotMatch(html,/>Confirm</);
+assert.match(html,/Execution receipt/);
+assert.match(workflowPartsHTML({parts:[{type:'result',capability:'get_spending_allowance',data:{amount:{amount:'0',currency:'USD'},protected_reserves:{amount:'2500',currency:'USD'},low_point_balance:{amount:'1604.70',currency:'USD'}}}]}),/Protected reserves/);
+assert.match(workflowPartsHTML({parts:[{type:'result',capability:'read_document',data:{text:'<script>alert("x")</script>'}}]}),/&lt;script&gt;/);
+assert.doesNotMatch(workflowPartsHTML({parts:[{type:'result',capability:'read_document',data:{text:'<script>alert("x")</script>'}}]}),/<script>/);
+for(const [input,places,expected] of [['17.8',-2,'0.178'],['0.0029',2,'0.29'],['25',-2,'0.25'],['0.2500',2,'25'],['0',2,'0'],['-0.01',2,'-1']])
+  assert.equal(shiftDecimal(input,places),expected);
+assert.throws(()=>shiftDecimal('NaN',-2));
+resetWorkflowUI();
+console.log('Workflow UI: exact review versions, confirmation identity, receipts, structured money, escaping and decimal rates passed.');
+
+const OriginalFormData=globalThis.FormData;
+globalThis.FormData=class {append() {}};
+let resolveConversation,uploaded=0,rendered=0;
+const uploadButton={disabled:false,isConnected:true};
+const uploadForm={dataset:{workflowForm:'csv'},isConnected:true,querySelector:()=>uploadButton,remove() {}};
+initializeWorkflowUI({ensureConversation:()=>new Promise(resolve=>{resolveConversation=resolve}),append:()=>rendered++});
+const abandoned=handleWorkflowSubmit(uploadForm);
+resetWorkflowUI();
+resolveConversation('old-user-conversation');
+await abandoned;
+assert.equal(rendered,0);
+let resolveUpload;
+initializeWorkflowUI({ensureConversation:async()=>'old-user-conversation',append:()=>rendered++});
+globalThis.fetch=async()=>{uploaded++;return new Promise(resolve=>{resolveUpload=resolve})};
+uploadButton.disabled=false;
+const lateUpload=handleWorkflowSubmit(uploadForm);
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(uploaded,1);
+resetWorkflowUI();
+resolveUpload({ok:true,status:201,headers:{get:()=>null},json:async()=>({proposal:p})});
+await lateUpload;
+assert.equal(rendered,0,'Late upload must not render after account/conversation reset');
+globalThis.FormData=OriginalFormData;
+console.log('Workflow session safety: abandoned conversation creation and late CSV responses stay out of the next session.');

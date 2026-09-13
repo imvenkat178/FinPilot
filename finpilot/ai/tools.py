@@ -9,6 +9,8 @@ answers" -- is satisfied from the data rather than from the prose.
 from __future__ import annotations
 
 import json
+import math
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal as D
@@ -33,6 +35,43 @@ from ..models import AccountType, Confidence, Household, PolicyPurpose
 from ..money import Money, msum
 
 
+def _argument_error(arguments: Any, schema: dict) -> Optional[str]:
+    """Flat JSON tool contracts, shared by routed/API and model-selected calls."""
+    if not isinstance(arguments, dict):
+        return "arguments must be an object"
+    properties = schema.get("properties", {})
+    if not set(schema.get("required", [])).issubset(arguments):
+        return "a required input is missing"
+    if not set(arguments).issubset(properties):
+        return "an input is not supported by this tool"
+    for key, value in arguments.items():
+        rule = properties[key]
+        expected = rule.get("type")
+        if expected == "string":
+            if not isinstance(value, str) or len(value) > rule.get("maxLength", 500):
+                return f"{key} must be a string of at most {rule.get('maxLength', 500)} characters"
+        elif expected == "boolean":
+            if type(value) is not bool:
+                return f"{key} must be a boolean"
+        elif expected in ("integer", "number"):
+            if type(value) not in ((int,) if expected == "integer" else (int, float)):
+                return f"{key} must be a finite {expected}"
+            try:
+                if not math.isfinite(value):
+                    return f"{key} must be finite"
+            except OverflowError:
+                return f"{key} must be finite"
+            if "minimum" in rule and value < rule["minimum"]:
+                return f"{key} must be at least {rule['minimum']}"
+            if "maximum" in rule and value > rule["maximum"]:
+                return f"{key} must be at most {rule['maximum']}"
+        else:
+            return f"{key} uses an unsupported input type"
+        if "enum" in rule and value not in rule["enum"]:
+            return f"{key} must be one of the supported values"
+    return None
+
+
 @dataclass
 class ToolSpec:
     name: str
@@ -41,6 +80,8 @@ class ToolSpec:
     fn: Callable[..., dict]
     consequential: bool = False
     intents: tuple[str, ...] = ()
+    # Unclassified/new tools are excluded from model selection by default.
+    read_only: bool = False
 
 
 class ToolRegistry:
@@ -70,19 +111,28 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return list(self._specs)
 
-    def openai_schemas(self) -> list[dict]:
+    def openai_schemas(self, *, read_only: bool = False) -> list[dict]:
         return [{"type": "function",
                  "function": {"name": s.name, "description": s.description,
                               "parameters": s.parameters}}
-                for s in self._specs.values()]
+                for s in self._specs.values() if not read_only or s.read_only]
+
+    def validate_arguments(self, name: str, arguments: Any) -> Optional[str]:
+        spec = self._specs.get(name)
+        return _argument_error(arguments, spec.parameters) if spec else "unknown tool"
 
     def call(self, name: str, arguments: Optional[dict] = None) -> dict:
         spec = self._specs.get(name)
         if spec is None:
             return {"error": f"unknown tool {name}",
                     "available": list(self._specs)}
+        args = {} if arguments is None else arguments
+        error = self.validate_arguments(name, args)
+        if error:
+            return {"error": f"bad arguments for {name}: {error}",
+                    "expected": spec.parameters, "_tool": name}
         try:
-            out = spec.fn(**(arguments or {}))
+            out = spec.fn(**args)
         except TypeError as e:
             return {"error": f"bad arguments for {name}: {e}",
                     "expected": spec.parameters}
@@ -93,9 +143,20 @@ class ToolRegistry:
         out.setdefault("_tool", name)
         return out
 
-    def _add(self, name, description, parameters, fn, consequential=False, intents=()):
+    def _add(self, name, description, parameters, fn, consequential=False, intents=(), *, read_only=False):
+        parameters = deepcopy(parameters)
+        parameters["additionalProperties"] = False
+        bounds = {"days": (1, 3660), "horizon_days": (1, 3660), "hold_days": (1, 3660),
+                  "months": (1, 120), "year": (1900, 2200), "month": (1, 12),
+                  "paychecks_remaining": (1, 520)}
+        for key, rule in parameters.get("properties", {}).items():
+            if key in bounds:
+                rule.setdefault("minimum", bounds[key][0])
+                rule.setdefault("maximum", bounds[key][1])
+            if rule.get("type") == "string":
+                rule.setdefault("maxLength", 500)
         self._specs[name] = ToolSpec(name, description, parameters, fn,
-                                     consequential, intents)
+                                     consequential, intents, read_only)
 
     # ==================================================================
     def _register_all(self) -> None:
@@ -107,7 +168,7 @@ class ToolRegistry:
                   "total cash, total debt, net worth, and what is actually "
                   "spendable today.",
                   NO_ARGS, self.get_money_overview,
-                  intents=("overview", "balances", "net_worth"))
+                  intents=("overview", "balances", "net_worth"), read_only=True)
 
         self._add("get_paycheck_plan",
                   "The dated allocation of each paycheck this month across bills, "
@@ -117,7 +178,7 @@ class ToolRegistry:
                       "year": {"type": "integer"}, "month": {"type": "integer"}},
                    "required": []},
                   self.get_paycheck_plan,
-                  intents=("paycheck", "split", "allocation", "plan"))
+                  intents=("paycheck", "split", "allocation", "plan"), read_only=True)
 
         self._add("get_spending_allowance",
                   "How much is safe to spend through a named date after required "
@@ -127,7 +188,7 @@ class ToolRegistry:
                       "days": {"type": "integer", "description": "horizon, default 14"},
                       "account_id": {"type": "string"}}, "required": []},
                   self.get_spending_allowance,
-                  intents=("afford", "spend", "allowance"))
+                  intents=("afford", "spend", "allowance"), read_only=True)
 
         self._add("get_cash_forecast",
                   "Daily projected balance for an account, with the low point and "
@@ -135,14 +196,14 @@ class ToolRegistry:
                   {"type": "object", "properties": {
                       "account_id": {"type": "string"},
                       "days": {"type": "integer"}}, "required": []},
-                  self.get_cash_forecast, intents=("forecast", "low", "negative"))
+                  self.get_cash_forecast, intents=("forecast", "low", "negative"), read_only=True)
 
         self._add("get_upcoming_obligations",
                   "Bills and required payments due in the next N days with their "
                   "funding account and confirmation state.",
                   {"type": "object", "properties": {"days": {"type": "integer"}},
                    "required": []},
-                  self.get_upcoming_obligations, intents=("bills", "due", "upcoming"))
+                  self.get_upcoming_obligations, intents=("bills", "due", "upcoming"), read_only=True)
 
         # ---- debt ------------------------------------------------------
         self._add("compare_debt_strategies",
@@ -158,7 +219,7 @@ class ToolRegistry:
                                              "household's own debts"}},
                    "required": []},
                   self.compare_debt_strategies, True,
-                  ("debt", "payoff", "snowball", "avalanche", "repayment"))
+                  ("debt", "payoff", "snowball", "avalanche", "repayment"), read_only=True)
 
         self._add("what_if_extra_payment",
                   "The effect of adding a specific extra amount to debt every "
@@ -167,7 +228,7 @@ class ToolRegistry:
                   {"type": "object", "properties": {
                       "amount": {"type": "number"}},
                    "required": ["amount"]},
-                  self.what_if_extra_payment, True, ("extra", "what if", "more"))
+                  self.what_if_extra_payment, True, ("extra", "what if", "more"), read_only=True)
 
         self._add("get_mortgage_scenarios",
                   "Model continuing scheduled payments, adding regular principal, "
@@ -177,14 +238,14 @@ class ToolRegistry:
                       "lump_sum": {"type": "number"},
                       "extra_monthly": {"type": "number"}}, "required": []},
                   self.get_mortgage_scenarios, True,
-                  ("mortgage", "recast", "prepay", "principal"))
+                  ("mortgage", "recast", "prepay", "principal"), read_only=True)
 
         self._add("compare_biweekly_mortgage",
                   "Compare a biweekly mortgage program with monthly payments plus "
                   "extra principal under the same annual budget.",
                   {"type": "object", "properties": {
                       "program_fee_per_year": {"type": "number"}}, "required": []},
-                  self.compare_biweekly_mortgage, intents=("biweekly", "fortnightly"))
+                  self.compare_biweekly_mortgage, intents=("biweekly", "fortnightly"), read_only=True)
 
         self._add("plan_promotional_payoff",
                   "Compute the per-paycheck reserve needed to clear a promotional "
@@ -193,7 +254,7 @@ class ToolRegistry:
                       "balance": {"type": "number"},
                       "paychecks_remaining": {"type": "integer"}},
                    "required": ["balance", "paychecks_remaining"]},
-                  self.plan_promotional_payoff, intents=("promo", "0%", "deferred"))
+                  self.plan_promotional_payoff, intents=("promo", "0%", "deferred"), read_only=True)
 
         # ---- cards -----------------------------------------------------
         self._add("choose_card",
@@ -214,7 +275,7 @@ class ToolRegistry:
                       "mcc_certain": {"type": "boolean"},
                       "processing_fee_rate": {"type": "number"}},
                    "required": ["amount"]},
-                  self.choose_card, intents=("card", "which card", "pay with"))
+                  self.choose_card, intents=("card", "which card", "pay with"), read_only=True)
 
         self._add("compare_card_vs_bank_for_bill",
                   "Compare paying a bill with a card against the existing bank or "
@@ -226,7 +287,7 @@ class ToolRegistry:
                       "processing_fee_rate": {"type": "number"},
                       "lost_autopay_discount": {"type": "number"}},
                    "required": ["amount"]},
-                  self.compare_card_vs_bank_for_bill, intents=("bill", "fee", "surcharge"))
+                  self.compare_card_vs_bank_for_bill, intents=("bill", "fee", "surcharge"), read_only=True)
 
         self._add("compare_booking_channels",
                   "Compare a direct booking against a portal booking on total price "
@@ -235,7 +296,7 @@ class ToolRegistry:
                       "direct_price": {"type": "number"}, "direct_rate": {"type": "number"},
                       "portal_price": {"type": "number"}, "portal_rate": {"type": "number"}},
                    "required": ["direct_price", "portal_price"]},
-                  self.compare_booking_channels, intents=("hotel", "portal", "booking"))
+                  self.compare_booking_channels, intents=("hotel", "portal", "booking"), read_only=True)
 
         self._add("check_utilization_timing",
                   "Compare paying a card before statement close against paying at "
@@ -245,7 +306,7 @@ class ToolRegistry:
                       "card_id": {"type": "string"}, "payment": {"type": "number"}},
                    "required": []},
                   self.check_utilization_timing,
-                  intents=("utilization", "credit score", "statement close"))
+                  intents=("utilization", "credit score", "statement close"), read_only=True)
 
         # ---- liquidity and timing -------------------------------------
         self._add("get_buffer",
@@ -253,7 +314,7 @@ class ToolRegistry:
                   "obligations, and how much is genuinely sweepable.",
                   {"type": "object", "properties": {"account_id": {"type": "string"}},
                    "required": []},
-                  self.get_buffer, intents=("buffer", "cushion", "floor", "sweep"))
+                  self.get_buffer, intents=("buffer", "cushion", "floor", "sweep"), read_only=True)
 
         self._add("assess_sweep_move",
                   "Whether moving a specific amount to a higher-yield existing "
@@ -263,12 +324,12 @@ class ToolRegistry:
                       "destination_apy": {"type": "number"},
                       "transfer_fee": {"type": "number"}},
                    "required": ["amount"]},
-                  self.assess_sweep_move, intents=("move", "sweep", "yield"))
+                  self.assess_sweep_move, intents=("move", "sweep", "yield"), read_only=True)
 
         self._add("get_liquidity_tiers",
                   "Classify every asset by verified accessibility, separating "
                   "spendable cash from investments and from borrowing capacity.",
-                  NO_ARGS, self.get_liquidity_tiers, intents=("liquid", "access", "tiers"))
+                  NO_ARGS, self.get_liquidity_tiers, intents=("liquid", "access", "tiers"), read_only=True)
 
         self._add("compare_payment_timing",
                   "Compare holding cash against the cost of delaying a payment, "
@@ -278,12 +339,12 @@ class ToolRegistry:
                       "debt_apr": {"type": "number"}, "cash_apy": {"type": "number"},
                       "accrues_daily": {"type": "boolean"}},
                    "required": ["amount", "due_date"]},
-                  self.compare_payment_timing, intents=("when to pay", "timing", "early"))
+                  self.compare_payment_timing, intents=("when to pay", "timing", "early"), read_only=True)
 
         # ---- tax --------------------------------------------------------
         self._add("get_tax_profile",
                   "Read the saved tax profile, rates, and verification status without a scenario.",
-                  NO_ARGS, self.get_tax_profile, intents=("tax assumptions", "tax profile"))
+                  NO_ARGS, self.get_tax_profile, intents=("tax assumptions", "tax profile"), read_only=True)
         self._add("compare_savings_vs_debt",
                   "Net benefit comparison: keep the cash, or apply it to an "
                   "existing debt, over the same period after supported taxes and "
@@ -292,7 +353,7 @@ class ToolRegistry:
                       "amount": {"type": "number"}, "horizon_days": {"type": "integer"}},
                    "required": ["amount"]},
                   self.compare_savings_vs_debt, True,
-                  ("save or pay", "net benefit", "after tax"))
+                  ("save or pay", "net benefit", "after tax"), read_only=True)
 
         self._add("check_interest_deduction",
                   "Whether interest on a loan type can qualify for a deduction, "
@@ -302,7 +363,7 @@ class ToolRegistry:
                                     "enum": ["mortgage", "student_loan", "credit_card",
                                              "auto_loan", "investment"]}},
                    "required": ["loan_type"]},
-                  self.check_interest_deduction, intents=("deduct", "tax", "write off"))
+                  self.check_interest_deduction, intents=("deduct", "tax", "write off"), read_only=True)
 
         # ---- coverage and entities --------------------------------------
         self._add("get_deposit_coverage",
@@ -310,7 +371,7 @@ class ToolRegistry:
                   "institution, owner and ownership category, including sweep "
                   "look-through.",
                   NO_ARGS, self.get_deposit_coverage,
-                  intents=("insured", "fdic", "ncua", "coverage", "protected"))
+                  intents=("insured", "fdic", "ncua", "coverage", "protected"), read_only=True)
 
         self._add("plan_coverage_remedy",
                   "How much to move from an over-limit institution to an existing "
@@ -319,7 +380,7 @@ class ToolRegistry:
                       "source_institution": {"type": "string"},
                       "destination_institution": {"type": "string"}},
                    "required": ["source_institution"]},
-                  self.plan_coverage_remedy, True, ("uninsured", "move", "excess"))
+                  self.plan_coverage_remedy, True, ("uninsured", "move", "excess"), read_only=True)
 
         self._add("stress_collateral_line",
                   "Stress an existing securities-backed line: market decline, "
@@ -331,14 +392,14 @@ class ToolRegistry:
                       "decline": {"type": "number"},
                       "reduced_advance_rate": {"type": "number"}},
                    "required": ["collateral_value", "advance_rate", "drawn"]},
-                  self.stress_collateral_line, intents=("collateral", "margin", "sbloc"))
+                  self.stress_collateral_line, intents=("collateral", "margin", "sbloc"), read_only=True)
 
         # ---- automation and execution ------------------------------------
         self._add("get_automation_status",
                   "Upcoming automated runs, their amounts and bounds, the mandate "
                   "behind each, and anything unresolved.",
                   NO_ARGS, self.get_automation_status,
-                  intents=("automation", "recurring", "rules", "scheduled"))
+                  intents=("automation", "recurring", "rules", "scheduled"), read_only=True)
 
         self._add("get_account_connections",
                   "Connection health for every account -- last synced, and the "
@@ -346,7 +407,7 @@ class ToolRegistry:
                   "the balances themselves.",
                   NO_ARGS, self.get_account_connections,
                   intents=("connection", "reconnect", "link", "sync", "reauthenticate",
-                            "stale", "not updating"))
+                            "stale", "not updating"), read_only=True)
 
         self._add("get_recurring_activity",
                   "Every standing rule's upcoming dated occurrences over the next "
@@ -356,7 +417,7 @@ class ToolRegistry:
                    {"horizon_days": {"type": "integer"}}, "required": []},
                   self.get_recurring_activity,
                   intents=("upcoming run", "next run", "when will", "will it run",
-                            "unresolved payment"))
+                            "unresolved payment"), read_only=True)
 
         self._add("pause_recurring_policy",
                   "Pause or resume one standing rule by id, without touching any "
@@ -395,14 +456,14 @@ class ToolRegistry:
                   {"type": "object", "properties": {"leg_id": {"type": "string"}},
                    "required": []},
                   self.explain_transfer_outcome,
-                  intents=("failed", "did not run", "why", "transfer"))
+                  intents=("failed", "did not run", "why", "transfer"), read_only=True)
 
         self._add("stress_income_loss",
                   "A separate stress scenario: lose income for N months. Shows "
                   "unmet obligations, reserve use and what must change.",
                   {"type": "object", "properties": {"months": {"type": "integer"}},
                    "required": []},
-                  self.stress_income_loss, intents=("lose", "job", "stress", "what if"))
+                  self.stress_income_loss, intents=("lose", "job", "stress", "what if"), read_only=True)
 
         self._add("explain_product_boundary",
                   "Explain what this application will not do: recommend opening "
@@ -410,7 +471,7 @@ class ToolRegistry:
                   {"type": "object", "properties": {"topic": {"type": "string"}},
                    "required": []},
                   self.explain_product_boundary,
-                  intents=("invest", "buy", "stock", "should i open"))
+                  intents=("invest", "buy", "stock", "should i open"), read_only=True)
 
     # ==================================================================
     # implementations
@@ -749,14 +810,18 @@ class ToolRegistry:
     def compare_savings_vs_debt(self, amount: float, horizon_days: int = 365) -> dict:
         options = []
         for l in self.hh.liabilities.values():
-            if not l.balance.is_positive or not self._in_scope(l.account_id):
+            if (not l.balance.is_positive or not self._in_scope(l.account_id)
+                    or l.balance.currency != self.cur):
                 continue
-            options.append((l.name, l.apr, l.tax_deductible_interest))
+            options.append((l.name, l.apr, l.tax_deductible_interest, l.balance))
         if not options:
             return {"error": "no eligible debt on file"}
         sav = next((a for a in self.hh.accounts.values()
-                    if a.type == AccountType.SAVINGS and self._in_scope(a.id)), None)
-        apy = sav.apy if sav and sav.apy else D("0.04")
+                    if a.type == AccountType.SAVINGS and self._in_scope(a.id)
+                    and a.currency == self.cur and a.apy is not None), None)
+        if sav is None:
+            return {"error": "add a savings account with a known APY before comparing savings and debt"}
+        apy = sav.apy
         cmp_ = compare_savings_vs_debt(Money(D(str(amount)), self.cur), apy,
                                        options, self.tax, horizon_days)
         return cmp_.to_json()

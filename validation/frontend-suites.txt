@@ -1,0 +1,8 @@
+Assistant UI: AI/CALC attribution, latest model status, accurate rejection reasons, scoped request, saved history, reset race, saved conversation resume/delete, document selection/citations, memory disclosure and error retry pass.
+Bank UI: unavailable state, safe rendering, official SDK gate, session-bound exchange/OAuth, CSRF and explicit disconnect pass.
+Execution UI: authorization consent, exact paycheck draft, blocked checks, confirmed simulation, recovery, global pause/resume and real-workspace isolation pass.
+{"mainSections":10,"accountTabViews":40,"detailTargets":115,"renders":50,"financialSourceContracts":"pass","draftDateGuard":"pass","globalPause":"pass","calculatorTables":"pass"}
+Knowledge UI: library selection, escaped excerpts, multipart upload/size/CSRF, duplicate/delete, MCP availability/catalog/import, one-time token retention, portable client configuration/copy fallback, credential readiness, reset races and changed-session privacy pass.
+Management forms: 10 populated routes, 5 empty-workspace routes, async imported history, stale-dialog protection, safe text, exact amounts and planning inclusion pass.
+Workflow UI: exact review versions, confirmation identity, receipts, structured money, escaping and decimal rates passed.
+Workflow session safety: abandoned conversation creation and late CSV responses stay out of the next session.

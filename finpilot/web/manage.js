@@ -1,6 +1,6 @@
 import { S, $, esc, money, human, dateLabel, fullDate, api, accountType, icon, table, cells, empty, note } from './core.js';
 
-let hooks = {}, csvStage = null, transactionRows = [], historyAccount = '', historyOffset = 0, historyQuery = '', viewGeneration = 0;
+let hooks = {}, csvStage = null, transactionRows = [], historyAccount = '', historyOffset = 0, historyQuery = '', viewGeneration = 0, captureForm = null;
 const amount = (v, fallback = '') => v?.amount ?? v ?? fallback;
 const currentDate = () => S.data?.as_of || new Date().toISOString().slice(0, 10);
 const input = (name, label, value = '', type = 'text', extra = '') => `<label>${esc(label)}<input name="${esc(name)}" type="${type}" value="${esc(value)}" ${extra}></label>`;
@@ -38,6 +38,7 @@ function show(title, body, description = '') {
   syncFields();
 }
 function form(kind, id, title, fields, description = '') {
+  if (captureForm) { captureForm.value = {kind, id, title, fields, description}; return; }
   show(title, `<form id="management-form" class="stack-form" data-kind="${kind}" data-id="${esc(id || '')}">${fields}<p class="form-result" role="status"></p><button type="submit" class="button primary">Save ${kind === 'tax' ? 'profile' : kind === 'income' ? 'income' : kind === 'policies' ? 'rule' : kind === 'reserves' ? 'goal' : kind === 'accounts' ? 'account' : 'bill'}</button></form>`, description);
 }
 function scheduleFields(schedule = {}, anchor = currentDate(), name = 'anchor', includeIncome = false) {
@@ -179,8 +180,7 @@ function transactionForm(id) {
   if (!tx) throw new Error('This transaction is no longer loaded. Open transaction history again.');
   show('Edit transaction',`<form id="transaction-edit-form" class="stack-form" data-id="${esc(id)}">${input('description','Description',tx.description,'text','maxlength="500" required')}${input('category','Category',tx.category,'text','maxlength="80" required')}${select('kind','Transaction type',tx.kind,['purchase','income','internal_transfer','card_repayment','loan_payment','fee','interest','refund','reimbursement','p2p','disputed','provisional_credit'].map(t => [t,human(t)]))}<p>${fullDate(tx.date)} · ${money(tx.amount,true)}</p><p class="form-result" role="status"></p><button class="button primary" type="submit">Save transaction</button></form>`,'Classify transfers and repayments separately so they do not inflate income or purchase spending.');
 }
-function syncFields() {
-  const form = $('management-form');
+export function syncFields(form = $('management-form')) {
   if (!form) return;
   const value = form.dataset.kind === 'accounts' ? form.elements.type?.value : form.elements.method?.value;
   for (const section of form.querySelectorAll('[data-visible-for]')) {
@@ -188,7 +188,7 @@ function syncFields() {
     section.disabled = section.hidden;
   }
 }
-function formPayload(form) {
+export function formPayload(form) {
   const values = Object.fromEntries(new FormData(form));
   for (const input of form.querySelectorAll('input[type="checkbox"]')) if (!input.disabled) values[input.name] = input.checked;
   for (const input of form.querySelectorAll('[data-rate]')) if (!input.closest('fieldset[disabled]')) values[input.name] = decimalShift(input.value,-2);
@@ -241,6 +241,16 @@ export async function handleManagementClick(el) {
     }
   } catch (error) { hooks.toast?.(error.message,true); if (el.isConnected) el.disabled = false; }
   return true;
+}
+export function inlineManagementForm(kind, id, key) {
+  const handlers = {accounts: accountForm, income: incomeForm, bills: billForm,
+    reserves: reserveForm, policies: policyForm, tax: taxForm};
+  if (!handlers[kind]) return '';
+  const captured = {}; captureForm = captured;
+  try { handlers[kind](id); } finally { captureForm = null; }
+  const f = captured.value;
+  if (!f) return '';
+  return `<form class="stack-form chat-record-form" id="chat-record-${esc(key)}" data-chat-record data-kind="${esc(f.kind)}" data-id="${esc(f.id || '')}"><h3>${esc(f.title)}</h3><p>${esc(f.description)}</p>${f.fields}<p class="form-result" role="status"></p><button type="submit" class="button primary">Review changes</button></form>`;
 }
 export async function handleManagementSubmit(form) {
   if (!['management-form','csv-preview-form','transaction-search-form','transaction-edit-form'].includes(form.id)) return false;

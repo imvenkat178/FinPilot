@@ -2,6 +2,8 @@
 
 The repository includes a nonroot container, a PostgreSQL Compose service, and reviewed Alembic migrations. No deployment is performed by these files. The supported hosted configuration is PostgreSQL behind HTTPS; native development can use SQLite.
 
+The conversation release adds `20260912_0003_conversations`; migrate before starting this version. See the [chat implementation plan](docs/IMPLEMENTATION_PLAN.md) for local walkthroughs and the remaining production checks. The container and CI install `requirements.lock`, the tested Linux/Python 3.12 dependency snapshot. Native Windows development uses `requirements.txt`.
+
 ## Native development on Windows
 
 Use Python 3.12 or newer. From the repository root:
@@ -61,7 +63,7 @@ python -m alembic upgrade head
 python -m alembic current
 ```
 
-Run migrations once per release, not simultaneously from every worker. Then start the app container or its Uvicorn command. `GET /api/health` performs a database readiness check; it does not wait for model discovery. Normal browser operation uses a cached model status.
+Run migrations once per release, not simultaneously from every worker. The expected current revision is `20260912_0003_conversations`. Then start the app container or its Uvicorn command. `GET /api/health` performs a database readiness check; it does not wait for model discovery. Normal browser operation uses a cached model status.
 
 Take and verify a database backup before applying new production migrations. Prefer a forward repair migration for deployed data. Migration downgrades remove the corresponding application tables and data; its automated round-trip test runs only against disposable SQLite databases.
 
@@ -100,19 +102,24 @@ The application works with calculator answers when no model is available. On Doc
 
 | Setting | Default | Bounds / effect |
 | --- | --- | --- |
-| `FINPILOT_LLM_TIMEOUT` | `12` seconds | 1â€“120 seconds; shared remaining inference budget across agent model calls. |
-| `FINPILOT_LLM_MAX_TOKENS` | `384` | 1â€“2,048 output tokens; lower values can lead to calculator fallback for incomplete explanations. |
-| `FINPILOT_LLM_HEALTH_TTL` | `15` seconds | 0â€“300 seconds; cached reachability observation. |
-| `FINPILOT_LLM_FAILURE_COOLDOWN` | `5` seconds | 0â€“60 seconds; skips repeated failing completions while retaining calculator answers. |
+| `FINPILOT_LLM_TIMEOUT` | `12` seconds | 1–120 seconds; shared remaining inference budget across agent model calls. |
+| `FINPILOT_LLM_MAX_TOKENS` | `384` | 1–2,048 output tokens; lower values can lead to calculator fallback for incomplete explanations. |
+| `FINPILOT_LLM_HEALTH_TTL` | `15` seconds | 0–300 seconds; cached reachability observation. |
+| `FINPILOT_LLM_FAILURE_COOLDOWN` | `5` seconds | 0–60 seconds; skips repeated failing completions while retaining calculator answers. |
 
 Configure model credentials at the operator layer. User accounts cannot change the shared model endpoint. Model inference is not instantaneous: budget exhaustion, malformed output, or failed financial checks return the deterministic answer instead. Financial figures still come from the same calculators.
+
+For the conversation planner, begin evaluation with `FINPILOT_LLM_MAX_TOKENS=1024`. Its typed JSON plans can need more space than a short explanation; the default 384-token configuration may truncate them. The planner requests at most 1,024 tokens and twelve seconds, subject to lower configured limits. Unreliable interpretation returns a clarification, not an executed command. Deterministic common commands remain available without a model.
 
 ## Validation supplied
 
 ```powershell
-.venv/Scripts/python.exe -m pytest tests/test_migrations.py tests/test_bank_linking.py tests/test_llm_runtime.py tests/test_ai.py -q
+.venv/Scripts/python.exe -m pytest tests -q
+.venv/Scripts/python.exe scripts/test_web.py
 ```
 
 Migration tests cover SQLite upgrade, repeat upgrade, downgrade, second upgrade, exact comparison against the SQLAlchemy metadata, and PostgreSQL SQL compilation without a server. AI tests cover model health coalescing, nonblocking status reads, client shutdown, timeout/cooldown fallback, live-response verification, routing, and guarded execution parity.
+
+Conversation tests add durable follow-ups and receipts, account/platform scope, confirmation replay, stale and expired previews, authority changes and atomic rollback. The 388-test backend suite and five Node web contract suites passed locally. The web runner starts a disposable API; it is not browser visual or interaction validation. Add a real PostgreSQL concurrency job and browser acceptance before treating this branch as production-verified.
 
 The scaffolding has not been deployed. Docker is not installed in the current workspace environment, so the image build and Compose startup have not been executed here. PostgreSQL DDL was compiled offline; a live PostgreSQL migration and restore rehearsal remain deployment checks. Test the image and actual target database before routing hosted user traffic to this deployment.

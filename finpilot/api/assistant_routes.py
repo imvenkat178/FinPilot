@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from ..ai.graph import FinanceAgent, ToolChoice
 from ..ai.tools import ToolRegistry
+from ..conversation.queries import SCOPED_TOOLS
 from ..persistence.database import ChatRow
 from .dependencies import P, R, revision
 
@@ -28,23 +29,22 @@ class AskIn(BaseModel):
 
 
 class TenantTools(ToolRegistry):
-    def __init__(self, ctx, runtime, principal):
-        super().__init__(ctx.household, ctx.tax, ctx.execution)
+    def __init__(self, ctx, runtime, principal, account_id=None):
+        super().__init__(ctx.household, ctx.tax, ctx.execution,
+                         allowed_account_ids={account_id} if account_id else None)
         self.runtime, self.principal, self.revision = runtime, principal, ctx.revision
         self.changed = False
 
     def call(self, name, arguments=None):
         spec = self.spec(name)
         if name not in {"pause_recurring_policy", "skip_next_occurrence", "pay_bill_once"}:
+            if self.scope and name not in SCOPED_TOOLS and name != "explain_product_boundary":
+                return {"error": "This calculation needs household context. Open a conversation and explicitly select Your household."}
+            if self.scope and spec and "account_id" in spec.parameters.get("properties", {}):
+                arguments = dict(arguments or {})
+                arguments.setdefault("account_id", next(iter(self.scope)))
             return super().call(name, arguments)
-        # Only tool execution owns a database transaction, never model inference.
-        with self.runtime.transaction(self.principal, "assistant." + name, self.revision) as ctx:
-            result = ctx.registry.call(name, arguments)
-            if "error" in result:
-                raise ValueError(result["error"])
-        self.hh, self.tax, self.execution, self.revision = ctx.household, ctx.tax, ctx.execution, ctx.revision
-        self.changed = True
-        return result
+        return {"error": "Open a conversation to preview and confirm this change. The legacy question endpoint cannot change financial records."}
 
 
 @router.post("/ask")
@@ -56,7 +56,7 @@ def ask(body: AskIn, request: Request, p: P, r: R):
         ctx = r.read(p)
         if body.context and body.context.account_id and body.context.account_id not in ctx.household.accounts:
             raise HTTPException(404, "Account not found in this workspace.")
-        tools = TenantTools(ctx, r, p)
+        tools = TenantTools(ctx, r, p, body.context.account_id if body.context else None)
         context = body.untrusted_context
         if body.context:
             import json

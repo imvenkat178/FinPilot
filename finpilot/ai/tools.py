@@ -591,7 +591,7 @@ class ToolRegistry:
     def get_mortgage_scenarios(self, lump_sum: Optional[float] = None,
                                extra_monthly: Optional[float] = None) -> dict:
         mort = next((l for l in self.hh.liabilities.values()
-                     if l.type == AccountType.MORTGAGE), None)
+                     if l.type == AccountType.MORTGAGE and self._in_scope(l.account_id)), None)
         if mort is None:
             return {"error": "no mortgage on file"}
         if not self._in_scope(mort.account_id):
@@ -614,7 +614,7 @@ class ToolRegistry:
     def compare_biweekly_mortgage(self, program_fee_per_year: Optional[float] = None
                                   ) -> dict:
         mort = next((l for l in self.hh.liabilities.values()
-                     if l.type == AccountType.MORTGAGE), None)
+                     if l.type == AccountType.MORTGAGE and self._in_scope(l.account_id)), None)
         if mort is None or not self._in_scope(mort.account_id):
             return {"error": "no mortgage on file"}
         return biweekly_comparison(

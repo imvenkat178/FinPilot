@@ -23,6 +23,7 @@ from .finance_routes import router as finance_router
 from .workspace_routes import router as workspace_router
 from .assistant_routes import router as assistant_router
 from .bank_routes import router as bank_router
+from .conversation_routes import router as conversation_router
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 log = logging.getLogger("finpilot.requests")
@@ -131,6 +132,7 @@ def create_app(database_url=None, *, llm=None):
     app.include_router(workspace_router)
     app.include_router(assistant_router)
     app.include_router(bank_router)
+    app.include_router(conversation_router)
     app.mount("/assets", StaticFiles(directory=WEB), name="assets")
     return app
 

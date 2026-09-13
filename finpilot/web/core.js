@@ -5,7 +5,7 @@ export const S = {
   revision: null,
   data: null,
   workspace: null,
-  page: "overview",
+  page: "chat",
   accountId: null,
   tab: "summary",
   accountFilter: "All accounts",
@@ -16,6 +16,7 @@ export const S = {
   cache: new Map(),
 };
 export const sections = [
+  ["chat", "FinPilot chat", "spark"],
   ["overview", "Overview", "grid"],
   ["accounts", "Accounts", "wallet"],
   ["paychecks", "Paycheck plan", "split"],

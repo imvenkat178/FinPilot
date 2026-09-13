@@ -38,6 +38,7 @@ import {
 } from "./core.js";
 import { manageButton } from "./manage.js";
 import { executionButton } from "./execution.js";
+import { chatPage } from "./assistant.js";
 export function overview() {
   const d = S.data,
     w = S.workspace,
@@ -422,6 +423,7 @@ export function protectionPage() {
   );
 }
 export const pages = {
+  chat: chatPage,
   overview,
   accounts: accountsPage,
   paychecks: paycheckPage,

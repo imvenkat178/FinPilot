@@ -117,6 +117,50 @@ class RateLimitRow(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class ConversationRow(Base):
+    __tablename__ = "conversations"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    household_id: Mapped[str] = mapped_column(ForeignKey("households.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(120))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ConversationTurnRow(Base):
+    __tablename__ = "conversation_turns"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
+    client_message_id: Mapped[str] = mapped_column(String(64))
+    request_digest: Mapped[str] = mapped_column(String(64))
+    sequence: Mapped[int] = mapped_column(Integer)
+    question: Mapped[str] = mapped_column(Text)
+    response: Mapped[dict] = mapped_column(JSON)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "client_message_id", name="uq_conversation_client_message"),
+        UniqueConstraint("conversation_id", "sequence", name="uq_conversation_sequence"),
+    )
+
+
+class ActionProposalRow(Base):
+    __tablename__ = "action_proposals"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
+    household_id: Mapped[str] = mapped_column(ForeignKey("households.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    workspace_revision: Mapped[int] = mapped_column(Integer)
+    payload: Mapped[dict] = mapped_column(JSON)
+    preview: Mapped[list] = mapped_column(JSON)
+    digest: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    receipt: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Database:
     def __init__(self, url: str | None = None):
         self.url = url or os.getenv("FINPILOT_DATABASE_URL", "sqlite:///./.local/finpilot.db")

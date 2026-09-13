@@ -96,13 +96,13 @@ function parseRoute() {
   try {
     parts = decodeURIComponent(location.hash.slice(1)).split("/");
   } catch {
-    parts = ["overview"];
+    parts = ["chat"];
   }
   if (parts[0] === "main") {
     document.querySelector("main").focus();
     return;
   }
-  S.page = sections.some((s) => s[0] === parts[0]) ? parts[0] : "overview";
+  S.page = sections.some((s) => s[0] === parts[0]) ? parts[0] : "chat";
   S.accountId = S.page === "accounts" ? parts[1] || null : null;
   S.tab = ["summary", "activity", "analytics", "details"].includes(parts[2])
     ? parts[2]
@@ -491,7 +491,7 @@ initializeAuth({
     initializeBankLinking({reload: () => load(), toast});
     ++loadSequence;
     closeDetail(); closeAssistant();
-    if (assistantReady) resetAssistant();
+    if (assistantReady) resetAssistant({forget: true});
     S.data = null; S.workspace = null; S.revision = null; S.cache.clear();
     S.accountId = null; S.query = ""; S.accountFilter = "All accounts";
     $("main").innerHTML = ""; $("navigation").innerHTML = "";

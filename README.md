@@ -1,6 +1,8 @@
 # FinPilot
 
-A hosted personal-finance workspace with separate accounts and detail screens, paycheck planning, cash-flow forecasts, goals, debt and card analysis, and an assistant grounded in financial calculations. The approved Studio interface is used throughout the application.
+A conversational personal-finance workspace. Ask about an account or platform, explore calculated charts, set up recurring monthly allocations, revise a plan and confirm changes in chat. Account detail screens, paycheck planning, cash-flow forecasts, goals, debt and card analysis support the same conversation.
+
+Start with the [product review and complete feature architecture](docs/CONVERSATIONAL_FINANCE.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md). They distinguish the implemented chat foundation from the remaining per-deposit automation and live payment work.
 
 The application is a modular Python service with authenticated tenant boundaries, persistent data, and short database transactions. PostgreSQL is required for hosted production. SQLite supports development and tests.
 
@@ -35,7 +37,7 @@ For hosting, use the nonroot Docker image, PostgreSQL, Alembic migrations, and H
 | Cash flow | Dated projections, protected cash, spending allowance and operating-buffer calculations. |
 | Credit and loans | Debt strategy comparisons, extra payments, mortgage scenarios, utilization and reward calculations. |
 | Tax and protection | Editable assumptions, savings/debt comparisons, liquidity tiers and coverage calculations. |
-| Assistant | Contextual questions, calculator evidence, saved recent conversations, optional model explanations and calculator fallback. |
+| Conversations | Primary chat workspace, persistent private threads, typed follow-ups, account/platform scope, calculated charts and tables, inline setup, reviewed changes and durable receipts. |
 | Bank linking | Configurable Plaid Link for supported US checking, savings and money-market accounts; encrypted tokens, cursor sync and disconnect. |
 | Sample execution | Reviewed, explicitly confirmed payment simulation, current preflight checks, independent payment legs, idempotency, recovery and audit records. |
 
@@ -52,7 +54,10 @@ Email/password authentication does not include email verification, password reco
 - Versioned allowlisted JSON preserves Decimal amounts, recurrence history, shared mandates and payment lifecycle state. No pickle is used for application persistence.
 - The initial screen uses one consistent bootstrap response. Dashboard calculations cache by household revision; transaction history uses an indexed, bounded read endpoint.
 - Model discovery and inference stay outside financial transaction locks. Status reads perform no network calls. Inference has a bounded admission limit, request budget, pooled client and failure cooldown.
-- Financial engines supply numbers and action states. Model wording is checked against those results; failures use calculator wording. These checks do not establish financial suitability or guarantee every generated interpretation.
+- The conversation planner interprets language into a validated read, action draft, question or inline form. Financial engines supply figures and action states; the model cannot execute changes. The legacy question route retains its answer checks and now rejects writes.
+- Previews expire and bind the exact command to the actor, household, date and financial revision. Confirmation, financial changes, audit and receipt commit together. Repeated confirmation returns the saved receipt.
+
+The current allocator distributes monthly targets across paycheck funding events. Exact fixed/percentage amounts on each received deposit, background recurring execution and live transfers are not implemented. The chat identifies those boundaries rather than substituting a different allocation meaning.
 
 The current aggregate snapshot includes history, so large histories still increase decode/write work. The benchmark records that cost rather than claiming unlimited scale or a hosted latency guarantee.
 
@@ -76,7 +81,7 @@ Measured on Windows 11 / Python 3.12 with disposable SQLite WAL databases and th
 
 The 5,000-row CSV import took 595 ms. A held mock inference request remained pending while a financial read and write completed in 265 ms and 351 ms; the benchmark asserts both finish before the mock model is released. Cache validity tests cover another worker's commit, membership removal and calendar rollover.
 
-These are local request timings, not a hosted latency guarantee. They exclude browser rendering, network/TLS and PostgreSQL contention. ìColdî clears application caches while database and operating-system caches remain warm. Full snapshot decoding and writes still scale with transaction history; the bounded SQL history endpoint and warm bootstrap avoid that work. Account deletion is not an exposed operation, so the benchmark measures supported create/read/update routes.
+These are local request timings, not a hosted latency guarantee. They exclude browser rendering, network/TLS and PostgreSQL contention. ‚ÄúCold‚Äù clears application caches while database and operating-system caches remain warm. Full snapshot decoding and writes still scale with transaction history; the bounded SQL history endpoint and warm bootstrap avoid that work. Account deletion is not an exposed operation, so the benchmark measures supported create/read/update routes.
 
 ## Project layout
 
@@ -91,9 +96,11 @@ finpilot/
   execution/      Sample payment lifecycle and recovery
   integrations/   Optional read-only bank adapter
   ai/             Intent routing, model client and answer checks
-  web/            Studio pages, forms, account details and assistant
+  conversation/   Durable chat state, scoped queries, previews and confirmations
+  web/            Chat workspace, Studio pages, forms and account details
 alembic/          Reviewed database migrations
 tests/            Domain, hosted, integration and frontend contracts
+docs/             Conversation architecture, feature coverage and next steps
 ```
 
 The `prototype/` directory retains the earlier design artifact. The running application is served by `finpilot.api.app:app`.
@@ -102,12 +109,11 @@ The `prototype/` directory retains the earlier design artifact. The running appl
 
 ```powershell
 .venv/Scripts/python.exe -m pytest -q
-node tests/management_frontend.mjs
-node tests/execution_frontend.mjs
-# Requires the local server; creates an isolated sample QA account:
-node tests/frontend.mjs
+.venv/Scripts/python.exe scripts/test_web.py
 ```
 
-Tests cover financial examples, payment retries and returns, occurrence accounting, authentication and CSRF, tenant isolation, stale revisions, concurrent writers, persistence across restarts, imports, assistant history, model fallback and migrations. Bank tests use mocked provider responses and synthetic tokens. Browser verification also exercises the new forms against the actual local API and database.
+The conversation branch passed 388 backend tests and all five web render-contract suites locally. Tests cover financial examples, payment retries and returns, occurrence accounting, authentication and CSRF, tenant isolation, stale revisions, concurrent writers, persistence across restarts, imports, conversation scope, confirmation replay, model fallback and migrations. Bank tests use mocked provider responses and synthetic tokens.
+
+`scripts/test_web.py` creates a disposable authenticated API and runs Node rendering contracts. It does not perform browser interaction or visual QA; the browser could not reach the isolated local server during this review. Live PostgreSQL, Docker, model quality and provider behavior still need validation in the intended environment. GitHub Actions runs the backend and web contracts using `requirements.lock`, the tested Linux/Python 3.12 dependency snapshot.
 
 The existing Starlette/AnyIO deprecation warning comes from the installed test-client dependency; it does not fail the suite.

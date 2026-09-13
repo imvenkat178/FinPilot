@@ -5,8 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
-COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt \
+COPY requirements.lock ./requirements.lock
+RUN pip install --no-cache-dir -r requirements.lock \
     && groupadd --gid 10001 finpilot \
     && useradd --uid 10001 --gid finpilot --create-home finpilot
 

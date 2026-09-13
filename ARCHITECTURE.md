@@ -2,10 +2,12 @@
 
 FinPilot is a modular monolith: a single Python application serves the browser, authenticated APIs, deterministic financial engines, and an optional local language model. PostgreSQL is the hosted system of record. SQLite supports local development and isolated tests.
 
+The primary application surface is now persistent chat. The [conversation architecture](docs/CONVERSATIONAL_FINANCE.md) describes its contracts, feature coverage and execution design; the [implementation plan](docs/IMPLEMENTATION_PLAN.md) gives the remaining tasks and acceptance checks.
+
 ## Request and data flow
 
 ```mermaid
-flowchart LR
+flowchart TD
     Browser[Browser workspace] --> HTTP[FastAPI routes and session checks]
     HTTP --> Runtime[Application runtime]
     Runtime --> Calculators[Financial calculators]
@@ -32,7 +34,10 @@ These boundaries permit the application to scale as one service while keeping mo
 | `sessions` | Hashed opaque session token and expiration. |
 | `transactions` | Indexed transaction projection for account activity queries. |
 | `audit_events` | Actor, action, household revision, and time of a committed change. |
-| `assistant_answers` | User/household-bound answer, evidence, and source revision. |
+| `assistant_answers` | Legacy user/household-bound answers, evidence, and source revision. |
+| `conversations` | Private thread, title, conversation revision, scope and typed last-plan references. |
+| `conversation_turns` | Ordered messages, client retry identifiers, request fingerprints and immutable calculated responses. |
+| `action_proposals` | Actor-bound command, preview, financial revision, expiry, state and durable receipt. |
 | `rate_limits` | Shared counters for authentication, assistant, and bank-operation limits. |
 | `bank_connections` | Household-scoped provider item, encrypted access token, account-ID mapping, sync cursor/version, and connection status. |
 
@@ -40,7 +45,9 @@ Each household is an aggregate. Its persisted JSON snapshot retains accounts, ob
 
 The indexed transaction table is a read projection, keyed by household and transaction ID, with an index on household, account, and posting date. Updates to the projection commit with the authoritative snapshot. This avoids a distributed dual-write problem. The snapshot still contains transaction history, so decoding and snapshot writes grow with that history; very large households may eventually justify separating immutable ledger records from the aggregate.
 
-A request derives its tenant from a validated session and current membership. A supplied household or account ID never grants access. The assistant's account/page context is a viewing hint within the authorized household, not a replacement authorization boundary. Several household-wide calculators intentionally read across accounts.
+A request derives its tenant from a validated session and current membership. A supplied household or account ID never grants access. Conversation account/platform scope additionally restricts supported calculator inputs and records. Tools that require household-wide context ask the user to select it explicitly. Scope does not grant authority to another account or replace membership checks. Legacy account-context questions now enforce the same supported-read boundary.
+
+`finpilot/conversation/` owns persistent threads, typed language plans, scoped evidence, isolated action previews and confirmation. It calls the existing workspace command services and household runtime. Confirmation locks current authority and financial state, revalidates the stored preview, and saves the financial mutation, audit, consumed proposal and receipt in one transaction. Duplicate confirmation returns the existing receipt without another financial revision. The legacy `/api/ask` route cannot perform writes.
 
 ## Writes and consistency
 
@@ -83,7 +90,9 @@ Sync is initiated by the user; scheduled sync, bank webhooks, update-mode instit
 
 ## AI latency and financial correctness
 
-Normal questions use a deterministic intent router and real calculators. The model only explains their results. The original numeric grounding, unsupported-action checks, untrusted-content checks, and scenario labels remain in the answer path. Empty, malformed, unavailable, or rejected model responses fall back to calculator wording with `used_model=false`.
+Conversation questions first use recognized intent handlers. Other language can use the optional model to return a schema-validated Plan. The server owns scope, calculations, visualization data, previews and command execution. Recent turns and typed references assist interpretation; financial data is reread for each new calculation. Unknown or malformed plans ask for clarification. General multi-step workflow orchestration and long-term preference memory remain future work.
+
+The legacy question endpoint retains its deterministic router and model explanations, numeric grounding and unsupported-action checks. Its answer behavior does not grant action authority. Conversation charts and tables are rendered from a finite allowlist of calculated components; no model-generated HTML or code is accepted.
 
 Latency controls are deliberately separate from calculation correctness:
 
@@ -92,7 +101,8 @@ Latency controls are deliberately separate from calculation correctness:
 - Chat and health calls reuse one thread-safe HTTP client. Closing a client stops new calls and releases the pool after active requests complete.
 - A failed completion starts a five-second retry cooldown. Calculator answers continue during that interval.
 - The default inference budget is 12 seconds with at most 384 output tokens. Environment overrides are supported, capped at 120 seconds and 2,048 tokens. Tool-calling and composition share the remaining budget; the HTTP client's connection and pool waits are bounded separately.
-- The runtime uses `FinanceAgent(..., compile_graph=False)` for request-bound snapshots. This executes the same six guarded phases directly and avoids compiling a bound graph for every request.
+- The new planner requests at most 1,024 tokens and twelve seconds, further limited by configured values. Use `FINPILOT_LLM_MAX_TOKENS=1024` as an initial evaluation setting for typed plans.
+- The legacy runtime uses `FinanceAgent(..., compile_graph=False)` for request-bound snapshots. The conversation service uses its own durable SQL state and does not compile a LangGraph workflow per request.
 - AI admission is bounded per application process. Requests beyond the available slots receive a retryable busy response rather than building an unlimited queue.
 
 These are latency controls, not a promise of instantaneous AI. Actual model time depends on hardware, cold loading, context length, and concurrent work. HTTP timeouts limit network waiting; they are not a hard real-time guarantee against every possible slow server response. No unverified token stream is shown as a financial answer.

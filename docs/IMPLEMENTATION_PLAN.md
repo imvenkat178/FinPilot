@@ -1,6 +1,10 @@
 # FinPilot implementation plan
 
-September 13, 2026 · Companion to [CONVERSATIONAL_FINANCE.md](CONVERSATIONAL_FINANCE.md)
+September 13, 2026; priorities updated September 14, 2026 · Companion to [CONVERSATIONAL_FINANCE.md](CONVERSATIONAL_FINANCE.md)
+
+## Priority update: two core product tracks
+
+The user's clarified priorities are account-growth visibility with opted-in money routing, and a single FinPilot payment credential that selects the best eligible existing funding card for each supported purchase. The [core specification](CORE_MONEY_AND_CARD_ROUTING.md) takes precedence over the ordering below. Begin dated observations, flow-adjusted growth, cash-routing proposals and bounded opt-in rules alongside US card-program feasibility and a deterministic card-routing simulator. Per-paycheck splits, debt and HNW workflows remain supporting work. Do not wait until Milestone F to investigate the card program.
 
 ## 1. Start with the branch already implemented
 
@@ -91,7 +95,7 @@ The workflow uses official checkout, Python and Node setup actions. Maintain the
 
 ## 5. Milestone B — exact paycheck splits and durable recurring plans
 
-This is the next feature to implement after the conversation review because it directly completes the user's request to split each paycheck.
+This supporting feature completes the user's request to split each paycheck. Integrate it with the cash-routing policy and consent model after establishing the core growth/observation contracts; the priority update above replaces the previous strictly sequential order.
 
 Add an explicit `amount_basis` to a versioned recurring-policy contract:
 
@@ -162,7 +166,7 @@ Deliver one vertical workflow at a time through the same chat/query/preview/acti
 | Workflow | Implementation detail | Acceptance criterion |
 | --- | --- | --- |
 | Owned-card advisor | Versioned issuer terms, MCC/merchant rules, credits, caps, grace-period facts, point-value assumptions and source dates. | A higher gross reward loses when verified fees/interest make its net benefit lower; unknown terms produce conditions or a question. |
-| Card usage integration | Supported merchant/wallet/biller adapter with tokenization and explicit user selection. | Changing the recommended card alone never claims the merchant's payment setting changed. |
+| Single FinPilot credential | Approved US issuing/funding program, tokenization, merchant benefit compatibility, fast authorization routing and recurring-payment lifecycle. | An eligible purchase actually reaches the selected supported funding card and reconciles; original-merchant reward treatment is verified, not inferred from issuing a virtual card. |
 | Debt cost minimization | Contract-specific daily accrual, fees, minimums, promo buckets, payment allocation and post-tax assumptions. | Compare feasible schedules over the same horizon, preserve minimums and show truncation/unknown terms. |
 | Mortgage scenarios | Principal/escrow separation, servicer recast eligibility, prepayment rules and payment-credit dates. | Lower recast payment and shorter payoff term are represented separately; unsupported servicer actions remain unavailable. |
 | Cash routing | Current owned destinations, restrictions, cutoffs, net yield, buffer forecast and sweep hysteresis. | Tiny yield changes do not cause repeated transfers; foreseeable bill shortfalls prevent a sweep. |
@@ -205,8 +209,8 @@ The web script starts its own disposable authenticated local API and runs Node r
 
 ## 12. Suggested engineering handoff
 
-Use this instruction for the next implementation task:
+Use this instruction for the next implementation task, reflecting the September 14 priorities:
 
-> Continue from the reviewed conversational-finance branch. Implement explicit allocation bases and per-received-deposit accounting as described in Milestone B. Preserve all existing monthly-target behavior through a versioned migration. Extend the existing Python domain services, typed conversation contracts and inline previews. Use verified occurrence identity, decimal arithmetic, caps, shortfall reporting and idempotent accounting. Keep payment simulation and real workspaces separate. Do not add live payment calls or claim a scheduled real transfer is available. Deliver the code, migration, behavioral tests, chat acceptance examples and updated capability/status documentation in a separate reviewable PR.
+> Continue from the reviewed conversational-finance branch and read CORE_MONEY_AND_CARD_ROUTING.md first. Implement dated observations and account-level growth that separates contributions, withdrawals and earnings. Add eligible existing-account comparisons using the actual yield of transferable cash, protected liquidity and explicit opt-in policies. In the separate card track, extend the existing rewards engine into a deterministic routing simulator with merchant compatibility, caps, user exclusions and receipts, and document the US issuing/funding capabilities still required for a single merchant-facing credential. Keep language models out of the payment authorization path. Preserve existing monthly targets and sample/real isolation. Do not claim live transfers, card issuance or reward preservation without a working approved provider integration. Deliver code, migrations, behavioral tests and updated capability documentation in reviewable changes.
 
-After that, complete financial observations and the provider-backed execution protocol. Ship a small number of end-to-end chat journeys with accurate outcomes before adding more unsupported commands to the prompt.
+Complete provider-backed transfers and the approved card credential integration as their respective capabilities become established. Ship a small number of end-to-end chat journeys with accurate outcomes before adding more unsupported commands to the prompt.

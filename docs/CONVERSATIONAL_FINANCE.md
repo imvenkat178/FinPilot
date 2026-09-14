@@ -1,16 +1,18 @@
 # FinPilot: the conversation is the financial workspace
 
-Product review and target architecture · September 13, 2026
+Product review and target architecture · September 13, 2026; core priorities clarified September 14, 2026
 
 Reviewed baseline: [`3a2bdc9`](https://github.com/imvenkat178/FinPilot/commit/3a2bdc9b01a1c860ff086236308fad57966336d7). Implementation branch: `codex/conversational-finance`. Read [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the ordered engineering tasks, local commands, acceptance scenarios and release checks.
 
 ## 1. Product definition
 
+The two primary outcomes are **growth-aware routing among the user's existing accounts, with opted-in transfers**, and **a single FinPilot payment credential that routes supported purchases to the eligible existing card with the best expected net benefit**. AI chat configures and controls both. The [core money and card routing specification](CORE_MONEY_AND_CARD_ROUTING.md) defines these priorities, the distinction between contributions and earnings, and the US card-program dependencies. Bills, debt, mortgage and other features below support these outcomes.
+
 FinPilot lets a person understand and manage their financial life through a continuing AI conversation. The user can ask a question, narrow it to one platform or account, request a chart, change the plan, review the exact change, and apply it in the same conversation. Account pages and dashboards remain useful supporting views.
 
 The complete product includes execution: moving money, paying supported bills, and running explicitly authorized recurring allocations. A recommendation becomes a draft, a reviewed command, a provider submission and a reconciled result. Those are different states and must remain visible.
 
-The financial universe is the user's existing accounts, cards, obligations and portfolios. Connecting or recording an existing account is supported. The app must not select new securities, sell holdings, open new financial accounts or recommend an external account as an automatic solution. Sending cash to an existing brokerage is different from buying an investment. Employer retirement contributions may require payroll changes and cannot be represented as ordinary bank transfers.
+The financial universe is the user's existing accounts, cards, obligations and portfolios. Connecting or recording an existing account is supported. The app must not select new securities, sell holdings, automatically open financial accounts or recommend an external investment account as a solution. The user's September 14 clarification explicitly adds enrollment in a FinPilot routing credential for supported existing cards; its issuing form and terms require separate consent. Sending cash to an existing brokerage is different from buying an investment. Employer retirement contributions may require payroll changes and cannot be represented as ordinary bank transfers.
 
 US consumer finance is the first delivery path. The same ownership, permission and cash-flow model should later support complex households, trusts and business entities. HNW features add verified entity and collateral rules; they do not require a separate chat product.
 
@@ -113,7 +115,7 @@ Status vocabulary: **available** means code exists in the reviewed application/t
 | Direct versus portal bookings | Compare total booking price, points value, statement credits and benefit eligibility for cards the user has. | Available numerical comparison; live pricing/availability and booking execution are not integrated. |
 | Grace period and repayment | Avoid presenting gross rewards as savings when interest/fees or inability to repay erode them. | Available modeled repayment checks; stale or unknown terms must remain visible. |
 | Benefit tracker | Track credits, cap usage, renewals, activation and expiration without encouraging purchases just to use a benefit. | Partial terms/cap model; statement reconciliation and alerts planned. |
-| Automatic card use | Use the chosen card only through a supported merchant, wallet, biller or payment integration with user authorization. | Planned. A chat recommendation cannot change the card inside Uber, Lyft or a hotel checkout by itself. |
+| Single FinPilot payment credential | User saves one FinPilot credential at supported merchants; the approved program routes purchases to the best eligible linked card. | Core planned feature. Requires a verified US issuing/funding program, recurring-payment support and actual reward eligibility; see [core specification](CORE_MONEY_AND_CARD_ROUTING.md). |
 | Reward reconciliation | Compare expected rewards to posted rewards and explain differences after returns or merchant recategorization. | Planned transaction-to-reward matching and user-reviewed correction flow. |
 
 ### 4.5 Protection, HNW and operational features
@@ -289,4 +291,4 @@ For a future curated library, record source URL, creator, publication/review dat
 
 A feature is complete when its user journey works through chat: intent recognition, missing-input collection, owned scope, deterministic analysis, appropriate visualization, editable preview, explicit authorization if needed, durable execution status and explainable outcome. It also needs failure, stale-data, permission and retry behavior. A new calculator, prompt or dashboard alone does not meet that definition.
 
-Use the [implementation plan](IMPLEMENTATION_PLAN.md) to deliver these journeys in dependency order. The first production milestone should be a small set of fully supported account/payment combinations with reliable receipts, followed by wider account coverage and HNW workflows.
+Use the updated priority table in the [core specification](CORE_MONEY_AND_CARD_ROUTING.md) and the [implementation plan](IMPLEMENTATION_PLAN.md) to deliver these journeys in dependency order. Start account-growth routing and card-program feasibility as the two primary tracks. The first production milestone should be a small set of fully supported account/payment combinations with reliable receipts, followed by wider account coverage and HNW workflows.

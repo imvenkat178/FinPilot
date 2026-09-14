@@ -4,6 +4,8 @@ A conversational personal-finance workspace. Ask about an account or platform, e
 
 Start with the [product review and complete feature architecture](docs/CONVERSATIONAL_FINANCE.md) and [implementation plan](docs/IMPLEMENTATION_PLAN.md). They distinguish the implemented chat foundation from the remaining per-deposit automation and live payment work.
 
+The [two core product features](docs/CORE_MONEY_AND_CARD_ROUTING.md) are growth-aware routing among existing accounts with opted-in transfers, and one FinPilot payment credential that routes supported purchases to the eligible existing card with the best net benefit. Chat is their common interface. Live account routing and the issuing/funding integration for that credential are planned; this repository currently provides the conversation foundation and sample execution.
+
 The application is a modular Python service with authenticated tenant boundaries, persistent data, and short database transactions. PostgreSQL is required for hosted production. SQLite supports development and tests.
 
 ## Run locally

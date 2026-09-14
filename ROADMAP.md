@@ -965,7 +965,7 @@ Done when: a short guide maps the modules in `finpilot/web/`, the state flow and
 
 Add ideas here as `- YYYY-MM-DD, author: idea`. Promote an idea to a sub-goal once someone commits to an outcome.
 
-- None yet.
+- 2026-09-14, Claude Opus 5 (Claude Code): ship `scripts/roadmap_artifact.py` in `docs/agent-memory-kit/` so other repositories get a live page with the current focus; it would need to take its title from `ROADMAP.md`.
 
 ## Considered and not adopted
 

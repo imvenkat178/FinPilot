@@ -11,11 +11,11 @@
 
 - **When:** 2026-09-14
 - **Who:** Claude Opus 5 (Claude Code)
-- **What happened:** The owner agreed to fill the documentation gaps from the audit. Added a user guide, calculation methods, a configuration reference and frontend notes in `docs/`, plus `SECURITY.md`, `CONTRIBUTING.md` and `CHANGELOG.md`. Every endpoint now has a summary, a description and error responses from `finpilot/api/route_docs.py`, applied in `create_app`; FastAPI 0.141 keeps included routers as wrappers, so `iter_api_routes` walks into them. `scripts/build_docs.py` generates `docs/api-reference.md`, `docs/api/openapi.json`, `docs/ai-capabilities.md` and `docs/data-model.md`, and `tests/test_docs.py` fails when they are stale or when a route or setting is undocumented. The README has a documentation map and lists all seven frontend suites. Roadmap: `G13.1`, `G13.4`, `G13.6` to `G13.9` and `G13.12` are done, `G13.10` and `G13.11` are in progress, and `G13.3` waits on the owner. The full suite ran in 79 seconds rather than the 18.5 minutes recorded on 2026-09-13, so `G5.2` dropped to P2 and `G5.1` no longer waits for it.
-- **State left behind:** Committed and pushed to `origin/main` at the owner's request by the commit that records this session; the pre-push hook ran on that push. `prototype/` is still untracked.
+- **What happened:** The owner asked for their private roadmap page on claude.ai to update every time the shared memory changes, so they can see which goals are being worked on. `scripts/roadmap_artifact.py build` turns the committed roadmap page template into that page and adds a "Working on now" panel with the current focus from section 4, the sub-goals marked `doing`, the last step and the five newest session entries. A Claude Code Stop hook in the owner's untracked `.claude/settings.local.json` runs `stop-hook`: when `ROADMAP.md`, `HANDOFF.md`, the commit or their uncommitted state differ from the last recorded publish, it keeps the session from finishing once and asks it to build, publish with the page URL and run `mark-published`. `tests/test_roadmap_artifact.py` covers the build and the handoff parsing. The page was republished from this state.
+- **State left behind:** Committed and pushed to `origin/main` at the owner's request by the commit that records this session; the pre-push hook ran on that push. The hook loads in new sessions, or after the owner opens `/hooks`. `prototype/` is still untracked.
 - **Resume by:**
   1. `git status --short` should show only `?? prototype/`.
-  2. `python scripts/roadmap.py next`.
+  2. `python scripts/roadmap_artifact.py status` should say the published page is current.
   3. Ask the owner about the decisions `G13.2`, `G13.3` and `G13.5`.
   4. Start `G1.1`.
 
@@ -24,11 +24,11 @@
 | Item | Current value |
 | --- | --- |
 | Branch | `main`, pushed to `origin/main` (https://github.com/imvenkat178/FinPilot.git). The remote also has `codex/conversational-finance` (last commit `bf7ab17`, 2026-09-12), which predates the memory system |
-| Last commit | The commit recording this session, on top of `5a04ad8` (2026-09-14) "docs: commit generated roadmap and kit pages, add pre-push checks" |
+| Last commit | The commit recording this session, on top of `b8a54a2` (2026-09-14) "docs: reference documentation, API descriptions and contributor guides" |
 | Uncommitted | Only `prototype/` (untracked, nested `.git`, see `G6.2`) |
 | What `76f95b1` contains | The reviewed AI workflow layer (80 typed capabilities, preview and confirm, receipts), saved conversations, document library with citations, MCP client and server, sample payment actions, their validation evidence, and the handoff system itself (`AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `scripts/check_handoff.py`, `tests/test_handoff.py`, `.github/PULL_REQUEST_TEMPLATE.md`). Described in `END_TO_END_VALIDATION.md` and `ARCHITECTURE.md` |
 | Toolchain verified here | Python 3.12.14 in `.venv/`, Node v24.19.0, Windows 11 |
-| Last full test run | 2026-09-14: `pytest -q -p no:cacheprovider` gave 761 passed, 1 warning in 79.23 s after the route documentation change. The 2026-09-13 run took 18 min 30 s (`validation/python-e2e.txt`). Frontend suites were not rerun; no web code changed |
+| Last full test run | 2026-09-14: `pytest -q -p no:cacheprovider` gave 763 passed, 1 warning in 80.57 s, including the two new roadmap page tests. The 2026-09-13 run took 18 min 30 s (`validation/python-e2e.txt`). Frontend suites were not rerun; no web code changed |
 | CI | None on GitHub; the workflow is blocked on the token's `workflow` scope (`G5.8`). Locally, `.githooks/pre-push` runs the memory checks where `core.hooksPath` is set |
 | Local model used for AI evidence | Ollama, `llama3.2:latest` (3.2B Q4_K_M, CPU), 12 s inference budget |
 
@@ -46,7 +46,7 @@ Working and covered by tests unless noted. Details live in `README.md` ("Availab
 - **Sample payment simulation:** preflight, independent legs, idempotency, recovery, audit; restricted to sample workspaces.
 - **Deployment assets:** nonroot Dockerfile, `compose.yaml`, `DEPLOYMENT.md`. Docker image not built or run here.
 - **Evidence:** benchmark scripts and dated JSON/text evidence under `validation/`; Llama interpretation matrix 115/140 exact, 77/80 capabilities with an accepted interpretation.
-- **Agent coordination:** `AGENTS.md` protocol, `HANDOFF.md` validated by `scripts/check_handoff.py`, and `ROADMAP.md` validated and summarized by `scripts/roadmap.py`; both validators run inside pytest. A portable, tested copy for other repositories lives in `docs/agent-memory-kit/`. A branch check (`--base`) and a GitHub Actions workflow template exist; the workflow is not active yet (`G5.8`). Generated pages `docs/roadmap.html` and `docs/agent-memory-kit/guide.html` are checked for staleness, and `.githooks/pre-push` runs the memory checks before pushes.
+- **Agent coordination:** `AGENTS.md` protocol, `HANDOFF.md` validated by `scripts/check_handoff.py`, and `ROADMAP.md` validated and summarized by `scripts/roadmap.py`; both validators run inside pytest. A portable, tested copy for other repositories lives in `docs/agent-memory-kit/`. A branch check (`--base`) and a GitHub Actions workflow template exist; the workflow is not active yet (`G5.8`). Generated pages `docs/roadmap.html` and `docs/agent-memory-kit/guide.html` are checked for staleness, and `.githooks/pre-push` runs the memory checks before pushes. `scripts/roadmap_artifact.py` builds the owner's private roadmap page with a "Working on now" panel from this file, and a local Stop hook asks Claude Code sessions on the owner's machine to republish it whenever `ROADMAP.md` or this file changes.
 - **Documentation:** a user guide, calculation methods, a configuration reference and frontend notes, plus generated API, capability and data model references in `docs/`, kept current by `tests/test_docs.py`.
 
 ## 4. Next (current focus)
@@ -84,6 +84,7 @@ Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend
 - The GitHub CLI token on this machine has the scopes `gist`, `read:org` and `repo` but not `workflow`, so a push that adds files under `.github/workflows/` would be rejected. Checked with `gh auth status` on 2026-09-13; a push was not attempted. Tracked as `G5.8`.
 - The generated pages load fonts from Google Fonts, and the guide page loads its Markdown renderer from cdnjs, so offline the guide shows raw Markdown. GitHub displays both files as source; open them in a browser, or enable GitHub Pages, to see them rendered.
 - `core.hooksPath` is a per-clone setting, so the pre-push check only runs in clones where someone enabled it.
+- Only Claude Code sessions on the owner's machine republish the owner's roadmap page: the Stop hook lives in the untracked `.claude/settings.local.json`, and only the owner can update that private page. Changes from other people or agents appear after the next such session stops. A hook file added during a session loads only after `/hooks` is opened or the session restarts.
 - The repository is public, so `ROADMAP.md` and this file publicly describe unfixed weaknesses such as `G1.1` and `G1.2`. No hosted deployment exists yet.
 - Remaining documentation gaps are tracked in `G13`: no `LICENSE`, no enabled private vulnerability reporting or promised response time, no specification for the requirement IDs cited in code, and no link from the app to `docs/user-guide.md`.
 
@@ -107,6 +108,7 @@ Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend
 | 2026-09-14 | Until the workflow can be pushed, a versioned pre-push hook runs the same checks locally | It needs no GitHub permission and uses the same commands as the workflow |
 | 2026-09-14 | Reference docs that mirror code are generated by `scripts/build_docs.py` and checked by `tests/test_docs.py`; endpoint text lives in `finpilot/api/route_docs.py` | Generated references cannot drift, and new routes or settings fail tests until they are documented |
 | 2026-09-14 | `G5.1` no longer depends on `G5.2`, and `G5.2` is P2 | The full suite took 79 seconds on 2026-09-14, so CI does not need a fast tier first |
+| 2026-09-14 | The owner's private roadmap page is built by `scripts/roadmap_artifact.py` from `ROADMAP.md` and `HANDOFF.md`, and a Stop hook in the owner's untracked `.claude/settings.local.json` enforces republishing; the page URL is not committed | Only the owner can publish to that page, so a committed hook would stop every other contributor's sessions, and the repository is public |
 
 ## 8. Session log (append newest first)
 
@@ -120,6 +122,13 @@ Template. Copy it and keep the heading format exactly: date | agent | one-line t
 - **Not done / left broken:** anything incomplete, failing, or skipped, and why.
 - **Next agent should:** the first concrete thing to do.
 -->
+
+### 2026-09-14 | Claude Opus 5 (Claude Code) | Live roadmap page for the owner
+- **Goal:** keep the owner's private roadmap page current every time the shared memory changes, and show the goals being worked on.
+- **Changed:** added `scripts/roadmap_artifact.py` (build, status, mark-published, stop-hook) and `tests/test_roadmap_artifact.py`. Added a Stop hook in the untracked `.claude/settings.local.json` and ignored that file in `.gitignore`. Recorded the page in `AGENTS.md`, `CHANGELOG.md` and this file, and added an idea to `ROADMAP.md` to ship the builder in the kit. Committed and pushed at the owner's request.
+- **Verified:** full suite 763 passed, 1 warning in 80.57 s. The hook command as saved printed a block decision while the page was unpublished and printed nothing when `stop_hook_active` was true. `roadmap.py check` and `check_handoff.py --strict` passed. One headless Chrome screenshot of the built page showed the new panel; the page was then republished and marked published.
+- **Not done / left broken:** The hook was not exercised end to end, because Claude Code loads a new hook file only after `/hooks` or a restart. The builder is not in the portable kit yet.
+- **Next agent should:** run `python scripts/roadmap_artifact.py status`, then start `G1.1`.
 
 ### 2026-09-14 | Claude Opus 5 (Claude Code) | Filled the documentation gaps
 - **Goal:** Write the missing documentation found by the audit, after the owner agreed.

@@ -4,6 +4,7 @@ FinPilot has no tagged releases yet, so changes are grouped by date. Commit hash
 
 ## 2026-09-14
 
+- `scripts/roadmap_artifact.py` builds the owner's private roadmap page from `ROADMAP.md` plus the current focus, last step and recent sessions in `HANDOFF.md`, and a local Claude Code Stop hook asks for a republish whenever those files change.
 - Reference documentation: a user guide, calculation methods, an API reference with its OpenAPI schema, an AI capability reference, a data model reference, a configuration reference and frontend notes, all listed in the README. Generated references are checked by `tests/test_docs.py`.
 - Every HTTP endpoint has a summary, a description and its error responses in the API schema served at `/docs`.
 - `SECURITY.md`, `CONTRIBUTING.md` and this changelog.

@@ -5,14 +5,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATES = ROOT / "docs" / "agent-memory-kit" / "templates"
-SHARED = ["scripts/roadmap.py", "scripts/check_handoff.py", "tests/test_handoff.py",
-          "tests/test_roadmap.py", ".github/PULL_REQUEST_TEMPLATE.md", "CLAUDE.md"]
+KIT = ROOT / "docs" / "agent-memory-kit"
+TEMPLATES = KIT / "templates"
+SHARED = ["scripts/roadmap.py", "scripts/roadmap_page.html", "scripts/check_handoff.py", "tests/test_handoff.py",
+          "tests/test_roadmap.py", ".github/PULL_REQUEST_TEMPLATE.md", ".githooks/pre-push", "CLAUDE.md"]
 HORIZON_ROWS = ("| `short-term` |", "| `mid-term` |", "| `long-term` |")
 
 
-def _load(name, relative):
-    spec = importlib.util.spec_from_file_location(name, ROOT / relative)
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
@@ -34,8 +35,8 @@ def test_kit_copies_match_the_files_this_repo_uses():
 
 
 def test_kit_templates_pass_both_validators():
-    roadmap = _load("kit_roadmap_tool", "scripts/roadmap.py")
-    handoff = _load("kit_handoff_tool", "scripts/check_handoff.py")
+    roadmap = _load("kit_roadmap_tool", ROOT / "scripts" / "roadmap.py")
+    handoff = _load("kit_handoff_tool", ROOT / "scripts" / "check_handoff.py")
     assert roadmap.check(TEMPLATES / "ROADMAP.md") == []
     text = _text(TEMPLATES / "HANDOFF.md")
     assert handoff.check_structure(text) == []
@@ -54,3 +55,8 @@ def test_roadmap_rules_match_the_kit_except_horizon_meanings():
         header = _from(_text(path), "## How this file works", "## Summary")
         return [line for line in header.split("\n") if not line.startswith(HORIZON_ROWS)]
     assert rules(ROOT / "ROADMAP.md") == rules(TEMPLATES / "ROADMAP.md")
+
+
+def test_kit_guide_page_matches_its_readme():
+    builder = _load("kit_guide_builder", KIT / "build_guide.py")
+    assert _text(KIT / "guide.html") == builder.render(), "Run: python docs/agent-memory-kit/build_guide.py"

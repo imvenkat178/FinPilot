@@ -121,3 +121,25 @@ def test_next_only_offers_work_whose_dependencies_are_finished():
     goals, problems = roadmap.parse(finished)
     assert problems == []
     assert [s.id for s in roadmap.actionable(goals)] == ["G1.2"]
+
+
+def test_configured_roadmap_page_is_generated_and_kept_current(tmp_path):
+    path = tmp_path / "ROADMAP.md"
+    path.write_text(VALID, encoding="utf-8")
+    (tmp_path / ".agent-memory.json").write_text('{"roadmap_page": "docs/roadmap.html"}', encoding="utf-8")
+    assert any("roadmap page" in p for p in roadmap.check(path))
+    assert roadmap.write(path) == []
+    assert roadmap.check(path) == []
+    page = (tmp_path / "docs" / "roadmap.html").read_text(encoding="utf-8")
+    assert "<title>Test roadmap</title>" in page
+    assert "Continuous integration" in page
+    assert "__ROADMAP_" not in page and "__PAGE_TITLE__" not in page
+    path.write_text(path.read_text(encoding="utf-8").replace("Ask the user.", "Ask the owner."), encoding="utf-8")
+    assert any("roadmap page" in p for p in roadmap.check(path))
+
+
+def test_no_page_is_written_without_configuration(tmp_path):
+    path = tmp_path / "ROADMAP.md"
+    path.write_text(VALID, encoding="utf-8")
+    roadmap.write(path)
+    assert not (tmp_path / "docs").exists()

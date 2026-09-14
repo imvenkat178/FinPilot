@@ -7,6 +7,9 @@ Usage:
     python scripts/roadmap.py check    # validate structure and summary freshness (exit 1 on problems)
     python scripts/roadmap.py json     # machine-readable goal tree
 
+With {"roadmap_page": "docs/roadmap.html"} in .agent-memory.json next to ROADMAP.md, write also
+regenerates that HTML page from scripts/roadmap_page.html, and check fails when the page is stale.
+
 Structure: goal "## G1. Title" -> sub-goal "### G1.1 Title" -> task "- [ ] G1.1.1 Title".
 The first non-blank line under a sub-goal heading must be its metadata, for example
     `short-term` `P0` `todo` needs: G2.1, G4.1
@@ -16,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import html
 import json
 import re
 import sys
@@ -303,6 +307,56 @@ def load(path: Path = ROADMAP) -> tuple[str, list[Goal], list[str]]:
     return text, goals, problems
 
 
+PAGE_TEMPLATE = Path(__file__).resolve().with_name("roadmap_page.html")
+PAGE_MARKERS = ("__PAGE_TITLE__", "/*__ROADMAP_JSON__*/[]", "/*__ROADMAP_HORIZONS__*/[]", "/*__ROADMAP_META__*/{}")
+
+
+def page_path(roadmap_path: Path) -> Path | None:
+    """The page configured as {"roadmap_page": "docs/roadmap.html"} in .agent-memory.json, if any."""
+    folder = roadmap_path.resolve().parent
+    config = folder / ".agent-memory.json"
+    if not config.exists():
+        return None
+    value = json.loads(config.read_text(encoding="utf-8")).get("roadmap_page")
+    return folder / value if value else None
+
+
+def page_title(text: str) -> str:
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if line.startswith("# "):
+            return line[2:].strip()
+    return "Roadmap"
+
+
+def horizon_meanings(text: str) -> list[list[str]]:
+    lines = text.replace("\r\n", "\n").split("\n")
+    rows = []
+    for tag in HORIZONS:
+        meaning = next((line.strip().strip("|").split("|", 1)[1].strip()
+                        for line in lines if line.startswith(f"| `{tag}` |")), "")
+        rows.append([tag, tag.capitalize(), meaning])
+    return rows
+
+
+def render_page(text: str, goals: list[Goal], template: Path = PAGE_TEMPLATE) -> str:
+    page = template.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    missing = [marker for marker in PAGE_MARKERS if marker not in page]
+    if missing:
+        raise ValueError(f"{template.name} is missing placeholders: {missing}")
+
+    def js(value) -> str:
+        return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
+    data = [{"id": g.id, "title": g.title, "subgoals": [
+        {"id": s.id, "title": s.title, "horizon": s.horizon, "priority": s.priority, "status": s.status,
+         "needs": s.needs, "body": s.body, "tasks": [{"id": k.id, "title": k.title, "done": k.done} for k in s.tasks]}
+        for s in g.subgoals]} for g in goals]
+    return (page.replace("__PAGE_TITLE__", html.escape(page_title(text)))
+                .replace("/*__ROADMAP_JSON__*/[]", js(data))
+                .replace("/*__ROADMAP_HORIZONS__*/[]", js(horizon_meanings(text)))
+                .replace("/*__ROADMAP_META__*/{}", js({"source": "ROADMAP.md"})))
+
+
 def check(path: Path = ROADMAP) -> list[str]:
     text, goals, problems = load(path)
     try:
@@ -311,6 +365,16 @@ def check(path: Path = ROADMAP) -> list[str]:
             problems.append("the summary block is stale; run: python scripts/roadmap.py write")
     except ValueError as exc:
         problems.append(str(exc))
+    page = page_path(path)
+    if page is not None:
+        try:
+            expected = render_page(text, goals)
+        except (OSError, ValueError) as exc:
+            problems.append(f"cannot render the roadmap page: {exc}")
+        else:
+            current = page.read_bytes().decode("utf-8").replace("\r\n", "\n") if page.exists() else None
+            if current != expected:
+                problems.append(f"the roadmap page {page.name} is stale; run: python scripts/roadmap.py write")
     return problems
 
 
@@ -322,6 +386,10 @@ def write(path: Path = ROADMAP) -> list[str]:
     start, end = _block_bounds(text)
     text = text[:start] + summary(goals) + text[end:]
     path.write_bytes((text.replace("\n", "\r\n") if crlf else text).encode("utf-8"))
+    page = page_path(path)
+    if page is not None:
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_bytes(render_page(text, goals).encode("utf-8"))
     return problems
 
 

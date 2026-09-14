@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__PAGE_TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#f8f9fb;--surface:#ffffff;--ink:#1e2531;--muted:#657080;--line:#e6e9ee;--line-strong:#d5dae2;
+  --accent:#5b4cc4;--accent-soft:#efedfb;
+  --good:#24775e;--good-soft:#e9f5ef;--warn:#946018;--warn-soft:#fff4e3;
+  --info:#577bb4;--info-soft:#eef3fa;--crit:#b3403a;--crit-soft:#fcecea;
+  --sans:Inter,"Segoe UI",Arial,sans-serif;--mono:"JetBrains Mono",Consolas,"Courier New",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11141b;--surface:#181c25;--ink:#e5e8ef;--muted:#9aa3b3;--line:#262c38;--line-strong:#343c4b;
+  --accent:#a49af2;--accent-soft:#252241;--good:#63c39c;--good-soft:#14281f;--warn:#dcaa60;--warn-soft:#2c2314;
+  --info:#93b3e3;--info-soft:#18212f;--crit:#ec8a83;--crit-soft:#321a1a;color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#11141b;--surface:#181c25;--ink:#e5e8ef;--muted:#9aa3b3;--line:#262c38;--line-strong:#343c4b;
+  --accent:#a49af2;--accent-soft:#252241;--good:#63c39c;--good-soft:#14281f;--warn:#dcaa60;--warn-soft:#2c2314;
+  --info:#93b3e3;--info-soft:#18212f;--crit:#ec8a83;--crit-soft:#321a1a;color-scheme:dark;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);padding-inline:20px;padding-block:32px 64px}
+.wrap{max-width:1100px;margin:0 auto;display:grid;gap:28px}
+h1,h2,h3{margin:0;text-wrap:balance;line-height:1.2}
+code,.id,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+code{font-size:.86em;background:var(--accent-soft);color:var(--ink);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+header{display:grid;gap:10px}
+header h1{font-size:32px;font-weight:700;letter-spacing:-.02em}
+header p{margin:0;color:var(--muted);max-width:68ch}
+.progress{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:baseline;font-size:14px}
+.progress b{font-size:18px}
+.bands{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.band{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:10px;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.band[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.band h2{font-size:15px;font-weight:600}
+.band .def{font-size:13px;color:var(--muted)}
+.band .stats{display:flex;gap:16px;font-size:13px;color:var(--muted)}
+.band .stats .num{font-size:22px;color:var(--ink);display:block;line-height:1.1}
+.band .stats .p0{color:var(--crit)}
+.mix{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--line)}
+.mix span{display:block;height:100%}
+.decisions{background:var(--accent-soft);border-radius:10px;padding:18px 20px;display:grid;gap:12px}
+.decisions h2{font-size:17px}
+.decisions ol{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.decisions li{display:grid;grid-template-columns:64px 1fr auto;gap:12px;align-items:baseline;font-size:14px}
+.decisions li button{all:unset;cursor:pointer;color:var(--accent);font-family:var(--mono);font-weight:600}
+.decisions li button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tag{font-size:12px;color:var(--muted);white-space:nowrap}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;position:sticky;top:0;z-index:2;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line)}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;border:0;background:var(--surface);color:var(--ink);padding:6px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line-strong)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+select,input[type="search"]{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;padding:6px 10px}
+input[type="search"]{flex:1 1 200px;min-width:0}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.count{font-size:13px;color:var(--muted);margin-left:auto}
+.group{display:grid;gap:8px}
+.group>h2{font-size:19px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.group>h2 small{font-size:13px;color:var(--muted);font-weight:500}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+details{border-top:1px solid var(--line)}
+details:first-child{border-top:0}
+summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:4px 14px;padding:12px 16px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary .id{font-size:13px;font-weight:600;color:var(--accent)}
+summary .title{font-weight:500}
+summary .goal{display:block;font-size:12px;color:var(--muted)}
+.meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.pill{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.prio{font-family:var(--mono);font-size:12px;font-weight:600;padding:1px 6px;border-radius:4px;border:1px solid var(--line-strong);color:var(--muted)}
+.prio.P0{color:var(--crit);border-color:currentColor}
+.s-todo{background:var(--line);color:var(--ink)}
+.s-doing{background:var(--info-soft);color:var(--info)}
+.s-blocked{background:var(--crit-soft);color:var(--crit)}
+.s-decision{background:var(--accent-soft);color:var(--accent)}
+.s-done{background:var(--good-soft);color:var(--good)}
+.s-dropped{background:var(--line);color:var(--muted);text-decoration:line-through}
+.tasks-n{font-size:12px;color:var(--muted)}
+.body{padding:2px 16px 16px 94px;display:grid;gap:10px;font-size:14px}
+.body dl{margin:0;display:grid;grid-template-columns:120px minmax(0,1fr);gap:6px 14px}
+.body dt{color:var(--muted);font-size:13px}
+.body dd{margin:0;max-width:75ch}
+.body ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.body li{display:grid;grid-template-columns:18px 64px minmax(0,1fr);gap:8px;align-items:baseline}
+.box{width:14px;height:14px;border:1.5px solid var(--line-strong);border-radius:3px;display:inline-block;transform:translateY(2px)}
+.box.on{background:var(--good);border-color:var(--good)}
+.body li .id{font-size:12px;color:var(--muted)}
+.needs button{all:unset;cursor:pointer;font-family:var(--mono);color:var(--accent);margin-right:8px}
+.empty{padding:24px;color:var(--muted);text-align:center}
+footer{font-size:13px;color:var(--muted);display:grid;gap:6px;max-width:75ch}
+@media (max-width:720px){
+  .bands{grid-template-columns:1fr}
+  summary{grid-template-columns:52px minmax(0,1fr)}
+  .meta{grid-column:2;justify-content:flex-start}
+  .body{padding-left:16px}
+  .body dl{grid-template-columns:1fr}
+  .decisions li{grid-template-columns:52px 1fr}
+  .decisions li .tag{grid-column:2}
+  .count{margin-left:0;width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Goal tree</span>
+    <h1>__PAGE_TITLE__</h1>
+    <p id="intro">Long-term goals, their sub-goals and tasks, classified by horizon. Generated from <code>ROADMAP.md</code> by <code>scripts/roadmap.py write</code>. Edit that file, not this page.</p>
+    <div class="progress" id="progress"></div>
+  </header>
+
+  <section class="bands" id="bands" aria-label="Horizons"></section>
+
+  <section class="decisions" aria-labelledby="dec-title">
+    <h2 id="dec-title">Decisions waiting on you</h2>
+    <ol id="decisions"></ol>
+  </section>
+
+  <div class="controls" role="toolbar" aria-label="Filter the roadmap">
+    <div class="seg" id="view" aria-label="Group by">
+      <button type="button" id="view-horizon" data-view="horizon" aria-pressed="true">By horizon</button>
+      <button type="button" id="view-goal" data-view="goal" aria-pressed="false">By goal</button>
+    </div>
+    <select id="status" aria-label="Status">
+      <option value="open">Open work</option>
+      <option value="decision">Needs a decision</option>
+      <option value="done">Done</option>
+      <option value="all">All statuses</option>
+    </select>
+    <input type="search" id="search" placeholder="Search IDs, titles, tasks" aria-label="Search">
+    <span class="count" id="count" aria-live="polite"></span>
+  </div>
+
+  <main id="groups" class="wrap" style="gap:28px"></main>
+
+  <footer>
+    <span id="snapshot"></span>
+    <span>Priority runs from P0, critical, to P3, low.</span>
+  </footer>
+</div>
+
+<script>
+const DATA = /*__ROADMAP_JSON__*/[];
+const META = /*__ROADMAP_META__*/{};
+const HORIZONS = /*__ROADMAP_HORIZONS__*/[];
+const OPEN = new Set(["todo","doing","blocked","decision"]);
+const STATUS_COLOR = {done:"var(--good)",doing:"var(--info)",decision:"var(--accent)",blocked:"var(--crit)",todo:"var(--line-strong)",dropped:"var(--muted)"};
+const PRIO = {P0:0,P1:1,P2:2,P3:3};
+const FIELDS = ["Why","Evidence","From","Adapted from","Done when","Decision needed","Blocked by"];
+const subs = [];
+DATA.forEach(g => g.subgoals.forEach(s => {
+  const f = {};
+  s.body.forEach(line => { const k = FIELDS.find(n => line.startsWith(n + ":")); if (k) f[k] = line.slice(k.length + 1).trim(); });
+  subs.push({...s, goal: g, fields: f, text: [s.id, s.title, g.title, ...s.body, ...s.tasks.map(t => t.id + " " + t.title)].join(" ").toLowerCase()});
+}));
+const byId = Object.fromEntries(subs.map(s => [s.id, s]));
+const state = {view:"horizon", status:"open", horizon:null, q:""};
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+function rich(text) {
+  const frag = document.createDocumentFragment();
+  String(text).split("`").forEach((part, i) => frag.append(i % 2 ? el("code", null, part) : document.createTextNode(part)));
+  return frag;
+}
+const order = id => id.slice(1).split(".").map(Number);
+const cmpId = (a, b) => { const x = order(a), y = order(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] ?? -1) !== (y[i] ?? -1)) return (x[i] ?? -1) - (y[i] ?? -1); } return 0; };
+
+function renderHeader() {
+  const tasks = subs.flatMap(s => s.tasks), done = tasks.filter(t => t.done).length;
+  const p = document.getElementById("progress");
+  [[`${done}/${tasks.length}`, "tasks done"], [`${subs.filter(s => s.status === "done").length}/${subs.length}`, "sub-goals done"], [String(DATA.length), "long-term goals"], [String(subs.filter(s => s.status === "decision").length), "decisions pending"]]
+    .forEach(([n, label]) => { const s = el("span"); s.append(el("b", "num", n), document.createTextNode(" " + label)); p.append(s); });
+  const bands = document.getElementById("bands");
+  HORIZONS.forEach(([key, name, def]) => {
+    const group = subs.filter(s => s.horizon === key), open = group.filter(s => OPEN.has(s.status));
+    const b = el("button", "band"); b.type = "button"; b.id = "band-" + key; b.dataset.horizon = key; b.setAttribute("aria-pressed", "false");
+    b.append(el("h2", null, name), el("span", "def", def));
+    const stats = el("div", "stats");
+    [[open.length, "open", ""], [open.filter(s => s.priority === "P0").length, "P0", "p0"], [group.filter(s => s.status === "done").length, "done", ""]]
+      .forEach(([n, label, cls]) => { const s = el("span"); s.append(el("span", "num " + cls, String(n)), document.createTextNode(label)); stats.append(s); });
+    const mix = el("div", "mix"); mix.setAttribute("aria-hidden", "true");
+    ["done","doing","decision","blocked","todo","dropped"].forEach(st => { const c = group.filter(s => s.status === st).length; if (c) { const seg = el("span"); seg.style.width = (100 * c / group.length) + "%"; seg.style.background = STATUS_COLOR[st]; seg.title = `${c} ${st}`; mix.append(seg); } });
+    b.append(stats, mix);
+    b.addEventListener("click", () => { state.horizon = state.horizon === key ? null : key; render(); });
+    bands.append(b);
+  });
+  const list = document.getElementById("decisions");
+  subs.filter(s => s.status === "decision").sort((a, b) => HORIZONS.findIndex(h => h[0] === a.horizon) - HORIZONS.findIndex(h => h[0] === b.horizon) || PRIO[a.priority] - PRIO[b.priority] || cmpId(a.id, b.id))
+    .forEach(s => {
+      const li = el("li"), jump = el("button", null, s.id); jump.type = "button"; jump.addEventListener("click", () => reveal(s.id));
+      const q = el("span"); q.append(el("strong", null, s.title + ". "), rich(s.fields["Decision needed"] || ""));
+      li.append(jump, q, el("span", "tag", `${s.horizon} · ${s.priority}`)); list.append(li);
+    });
+  document.getElementById("snapshot").textContent = `Source: ${META.source || "ROADMAP.md"} in this repository.`;
+}
+
+function row(s) {
+  const d = el("details"); d.id = "sg-" + s.id;
+  const sum = el("summary");
+  const t = el("span"); t.append(el("span", "title", s.title), el("span", "goal", `${s.goal.id} ${s.goal.title}`));
+  const meta = el("span", "meta");
+  const doneTasks = s.tasks.filter(x => x.done).length;
+  meta.append(el("span", "tasks-n num", `${doneTasks}/${s.tasks.length} tasks`), el("span", "prio " + s.priority, s.priority), el("span", "pill s-" + s.status, s.status));
+  if (state.view === "goal") meta.prepend(el("span", "tag", s.horizon));
+  sum.append(el("span", "id", s.id), t, meta);
+  const body = el("div", "body"), dl = el("dl");
+  FIELDS.forEach(k => { if (s.fields[k]) { const dd = el("dd"); dd.append(rich(s.fields[k])); dl.append(el("dt", null, k), dd); } });
+  if (s.needs.length) {
+    const dd = el("dd", "needs");
+    s.needs.forEach(n => { const b = el("button", null, n); b.type = "button"; b.title = byId[n] ? `${byId[n].title} (${byId[n].status})` : n; b.addEventListener("click", () => reveal(n)); dd.append(b); });
+    dl.append(el("dt", null, "Needs"), dd);
+  }
+  const ul = el("ul");
+  s.tasks.forEach(task => { const li = el("li"), box = el("span", "box" + (task.done ? " on" : "")); box.setAttribute("aria-label", task.done ? "Done" : "Open"); const txt = el("span"); txt.append(rich(task.title)); li.append(box, el("span", "id", task.id), txt); ul.append(li); });
+  body.append(dl, ul); d.append(sum, body);
+  return d;
+}
+
+function matches(s) {
+  if (state.status === "open" && !OPEN.has(s.status)) return false;
+  if (state.status === "decision" && s.status !== "decision") return false;
+  if (state.status === "done" && s.status !== "done") return false;
+  if (state.horizon && s.horizon !== state.horizon) return false;
+  return !state.q || s.text.includes(state.q);
+}
+
+function render() {
+  document.querySelectorAll("#view button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === state.view)));
+  document.querySelectorAll(".band").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.horizon === state.horizon)));
+  const shown = subs.filter(matches), root = document.getElementById("groups");
+  root.replaceChildren();
+  document.getElementById("count").textContent = `${shown.length} of ${subs.length} sub-goals`;
+  const groups = state.view === "horizon"
+    ? HORIZONS.map(([key, name, def]) => ({title: name, note: def, items: shown.filter(s => s.horizon === key).sort((a, b) => PRIO[a.priority] - PRIO[b.priority] || cmpId(a.id, b.id))}))
+    : DATA.map(g => ({title: `${g.id}. ${g.title}`, note: "", items: shown.filter(s => s.goal === g).sort((a, b) => cmpId(a.id, b.id))}));
+  groups.filter(g => g.items.length).forEach(g => {
+    const sec = el("section", "group"), h = el("h2", null, g.title);
+    h.append(el("small", null, `${g.items.length} sub-goal${g.items.length === 1 ? "" : "s"}${g.note ? " · " + g.note : ""}`));
+    const list = el("div", "list"); g.items.forEach(s => list.append(row(s)));
+    sec.append(h, list); root.append(sec);
+  });
+  if (!shown.length) root.append(el("p", "empty", "No sub-goals match these filters. Clear the search or choose All statuses."));
+}
+
+function reveal(id) {
+  if (!byId[id]) return;
+  state.status = "all"; state.horizon = null; state.q = "";
+  document.getElementById("status").value = "all"; document.getElementById("search").value = "";
+  render();
+  const d = document.getElementById("sg-" + id);
+  if (d) { d.open = true; d.scrollIntoView({block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"}); d.querySelector("summary").focus({preventScroll: true}); }
+}
+
+document.querySelectorAll("#view button").forEach(b => b.addEventListener("click", () => { state.view = b.dataset.view; render(); }));
+document.getElementById("status").addEventListener("change", e => { state.status = e.target.value; render(); });
+document.getElementById("search").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); render(); });
+renderHeader();
+render();
+</script>
+</body>
+</html>

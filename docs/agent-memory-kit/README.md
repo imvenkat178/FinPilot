@@ -2,7 +2,7 @@
 
 A shared, validated memory for any repository where humans and AI coding agents take turns. Every agent reads the same files at the start of a session and updates them before it stops, so work survives across sessions, tools and people.
 
-It was designed in the FinPilot repository and works with Claude Code, OpenAI Codex, Cursor, GitHub Copilot, Gemini CLI and people. It needs Python 3.8 or newer and git. pytest is optional.
+It was designed in the FinPilot repository and works with Claude Code, OpenAI Codex, Cursor, GitHub Copilot, Gemini CLI and people. It needs Python 3.8 or newer and git. pytest is optional. A rendered copy of this guide is `guide.html`; rebuild it with `python build_guide.py` after editing this file.
 
 ## The files
 
@@ -13,11 +13,13 @@ It was designed in the FinPilot repository and works with Claude Code, OpenAI Co
 | `HANDOFF.md` | Where we are: the last step, repository state, current focus, known limits, decisions and an append-only session log. | Rewritten every session |
 | `ROADMAP.md` | Where we are going: goals, sub-goals and tasks, each sub-goal with a horizon, priority, status and dependencies. | Grows over months |
 | `scripts/roadmap.py` | Lists actionable work, prints and regenerates the roadmap summary, validates the tree, exports JSON. | Copy as is |
+| `scripts/roadmap_page.html` | Template for the optional HTML roadmap page that `roadmap.py write` generates. | Copy as is |
 | `scripts/check_handoff.py` | Validates `HANDOFF.md`, `ROADMAP.md` and the links between them. `--strict` also checks git freshness. | Copy as is |
-| `.agent-memory.json` | Optional. Lists the path prefixes that count as code for `--strict`. | Per repository |
+| `.agent-memory.json` | Optional. Lists the path prefixes that count as code for `--strict` and `--base`, and can name an HTML roadmap page to generate. | Per repository |
 | `tests/test_handoff.py`, `tests/test_roadmap.py` | Run the validators inside pytest so nobody forgets them. | Copy as is |
 | `.github/PULL_REQUEST_TEMPLATE.md` | A checklist that asks for the handoff and roadmap updates. | Copy as is |
 | `.github/workflows/agent-memory.yml` | Runs both validators, the branch check and the memory tests on every push and pull request in GitHub Actions. | Copy as is |
+| `.githooks/pre-push` | Runs the roadmap check and the branch check before every push, in clones where hooks are enabled. | Copy as is |
 
 ## Two kinds of memory
 
@@ -137,6 +139,7 @@ Each session-log entry has a heading `### YYYY-MM-DD | agent | title` and five b
 - A `done` sub-goal with open tasks, and an open sub-goal whose tasks are all checked
 - `needs:` pointing at a missing sub-goal, at itself, or into a cycle
 - A summary block that no longer matches the tree
+- A configured roadmap page that no longer matches the tree
 
 `scripts/check_handoff.py` rejects:
 
@@ -170,8 +173,10 @@ With `--base REF` it also rejects:
 1. Copy everything inside this kit's `templates/` folder into the new repository root. Keep the `.github/`, `scripts/` and `tests/` folders.
 2. If the repository does not use pytest, delete the two files in `tests/`. The workflow still runs both validators and the branch check.
 3. Keep `.github/workflows/agent-memory.yml` to enforce the protocol on GitHub. Pushing a workflow file needs a token with the `workflow` scope; with the GitHub CLI, run `gh auth refresh -h github.com -s workflow` first.
-4. Open the repository in your coding agent and paste the bootstrap prompt below.
-5. Check the result yourself:
+4. Turn on the local pre-push check once per clone with `git config core.hooksPath .githooks`.
+5. Optional: add `"roadmap_page": "docs/roadmap.html"` to `.agent-memory.json` for a shareable HTML roadmap that `roadmap.py write` keeps current.
+6. Open the repository in your coding agent and paste the bootstrap prompt below.
+7. Check the result yourself:
 
    ```
    python scripts/roadmap.py check
@@ -179,7 +184,7 @@ With `--base REF` it also rejects:
    python scripts/roadmap.py next
    ```
 
-6. Commit and push the files once you are satisfied, then confirm the first workflow run passes.
+8. Commit and push the files once you are satisfied, then confirm the first workflow run passes.
 
 Use the repository's Python, such as `python3` or `.venv/bin/python`. Codex, Cursor and GitHub Copilot's coding agent read `AGENTS.md`; Claude Code reads `CLAUDE.md`, which imports it. For a tool that expects another file name, add a one-line file that points to `AGENTS.md`, or configure the tool to read it.
 
@@ -188,7 +193,7 @@ Use the repository's Python, such as `python3` or `.venv/bin/python`. Codex, Cur
 Paste this exactly into the agent, in the new repository, after copying the templates.
 
 ````text
-Set up the shared agent memory system in this repository. The kit files are already copied in: AGENTS.md, CLAUDE.md, HANDOFF.md, ROADMAP.md, scripts/roadmap.py, scripts/check_handoff.py, tests/test_handoff.py, tests/test_roadmap.py, .github/PULL_REQUEST_TEMPLATE.md and .github/workflows/agent-memory.yml. Keep every structure, heading, tag, format and rule exactly as the templates define them. Replace only placeholders and example content. Do not edit the two scripts.
+Set up the shared agent memory system in this repository. The kit files are already copied in: AGENTS.md, CLAUDE.md, HANDOFF.md, ROADMAP.md, scripts/roadmap.py, scripts/check_handoff.py, tests/test_handoff.py, tests/test_roadmap.py, scripts/roadmap_page.html, .githooks/pre-push, .github/PULL_REQUEST_TEMPLATE.md and .github/workflows/agent-memory.yml. Keep every structure, heading, tag, format and rule exactly as the templates define them. Replace only placeholders and example content. Do not edit the two scripts.
 
 1. Survey the repository before writing anything: README and other docs, directory layout, language, framework and package manager, how to install, run and test, CI configuration, the git branch, recent commits and uncommitted work.
 
@@ -202,13 +207,13 @@ Set up the shared agent memory system in this repository. The kit files are alre
    e. Use status decision with a Decision needed: line for anything only I can decide, such as vendors, pricing, pushing, publishing or deleting. Do not decide these yourself.
    f. List suggestions you reject under "Considered and not adopted" with the reason.
 
-4. If some non-Markdown files should not count as code for the strict check, for example generated or vendored folders, create .agent-memory.json containing {"code_paths": [...]} with the path prefixes that do count.
+4. If some non-Markdown files should not count as code for the strict check, for example generated or vendored folders, create .agent-memory.json containing {"code_paths": [...]} with the path prefixes that do count. To publish an HTML roadmap page, also add "roadmap_page": "docs/roadmap.html" to that file.
 
 5. HANDOFF.md: fill sections 1 to 7 with verified facts. In section 4, list three to five open roadmap IDs to start with. Replace the example session-log entry with a real entry for this session, dated today.
 
 6. If this project does not use pytest, delete tests/test_handoff.py and tests/test_roadmap.py.
 
-7. Run python scripts/roadmap.py write, then python scripts/roadmap.py check, then python scripts/check_handoff.py --strict, then the two tests if they remain. Fix every problem reported.
+7. Run python scripts/roadmap.py write, then python scripts/roadmap.py check, then python scripts/check_handoff.py --strict, then the two tests if they remain. Fix every problem reported. Then run git config core.hooksPath .githooks so every push from this clone runs the checks.
 
 8. Do not commit or push unless I ask. Finish by reporting the number of goals and sub-goals, the open short-term sub-goals, the decisions waiting on me, and the exact validation results.
 ````
@@ -220,6 +225,7 @@ Set up the shared agent memory system in this repository. The kit files are alre
 | Starting any session | Tell the agent: "Follow AGENTS.md." |
 | Seeing what to do next | `python scripts/roadmap.py next` |
 | Seeing overall progress | `python scripts/roadmap.py status` |
+| Sharing the roadmap | Open `docs/roadmap.html` in a browser, when the page is configured |
 | After editing `ROADMAP.md` | `python scripts/roadmap.py write` |
 | Before committing | `python scripts/check_handoff.py --strict` |
 | Before merging a branch | `python scripts/check_handoff.py --base main` |

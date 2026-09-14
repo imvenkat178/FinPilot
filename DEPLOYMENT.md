@@ -1,5 +1,7 @@
 # FinPilot deployment
 
+Every environment variable, with its default and effect, is listed in [docs/configuration.md](docs/configuration.md).
+
 The repository includes a nonroot container, a PostgreSQL Compose service, and reviewed Alembic migrations. No deployment is performed by these files. The supported hosted configuration is PostgreSQL behind HTTPS; native development can use SQLite.
 
 ## Native development on Windows

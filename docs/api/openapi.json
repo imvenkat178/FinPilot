@@ -1,0 +1,4335 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FinPilot",
+    "description": "Authenticated financial workspaces with deterministic calculations.",
+    "version": "2.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Check service health",
+        "description": "Runs a database readiness query. It needs no authentication and does not wait for model discovery.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Open the web application",
+        "description": "Serves the application shell with versioned asset URLs. No authentication.",
+        "operationId": "dashboard__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Create an account",
+        "description": "Creates a user, a private workspace and a session cookie. With `sample_data`, the workspace holds fictional data and payment simulation is enabled. Rate limited per client address.",
+        "operationId": "register_api_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Sign in",
+        "description": "Checks the email and password and sets the session cookie. Rate limited per client address and per email.",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Get the signed-in identity",
+        "description": "Returns the user, workspace ID, role and the CSRF token to send as `X-CSRF-Token` on every write.",
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Sign out",
+        "description": "Revokes the current session and clears the cookie.",
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          }
+        }
+      }
+    },
+    "/api/overview": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Get the money overview",
+        "description": "Returns the household money overview.",
+        "operationId": "overview_api_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/liquidity": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Get liquidity tiers",
+        "description": "Groups balances into tiers by how quickly the money can be used.",
+        "operationId": "liquidity_api_liquidity_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/coverage": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Estimate deposit insurance coverage",
+        "description": "Estimates deposit insurance coverage across accounts and ownership categories.",
+        "operationId": "coverage_api_coverage_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/bills": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "List upcoming bills",
+        "description": "Lists bill occurrences due within the next `days` days.",
+        "operationId": "bills_api_bills_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 366,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/forecast": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Forecast cash",
+        "description": "Projects dated balances for one account, or all planning accounts, over the next `days` days.",
+        "operationId": "forecast_api_forecast_get",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 366,
+              "minimum": 1,
+              "default": 45,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/allowance": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Calculate a spending allowance",
+        "description": "Calculates how much can be spent over the next `days` days while still covering obligations and protected cash.",
+        "operationId": "allowance_api_allowance_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 366,
+              "minimum": 1,
+              "default": 14,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/buffer": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Calculate an operating buffer",
+        "description": "Calculates the operating buffer for an account.",
+        "operationId": "buffer_api_buffer_get",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "List account connections",
+        "description": "Lists the connections between accounts in the workspace.",
+        "operationId": "connections_api_connections_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/recurring/activity": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "List recurring rule activity",
+        "description": "Lists recurring rule runs within `horizon_days` and whether each will run, is paused, skipped or lacks authorization.",
+        "operationId": "recurring_activity_api_recurring_activity_get",
+        "parameters": [
+          {
+            "name": "horizon_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 366,
+              "minimum": 1,
+              "default": 60,
+              "title": "Horizon Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/plan": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Get the paycheck plan",
+        "description": "Returns the paycheck allocation plan for a month, the current month by default.",
+        "operationId": "plan_api_plan_get",
+        "parameters": [
+          {
+            "name": "year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2200,
+                  "minimum": 1900
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Year"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 12,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/policies": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Get rule automation status",
+        "description": "Returns the status of recurring rules and their authorization.",
+        "operationId": "policies_api_policies_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Create a fixed rule (legacy)",
+        "description": "Creates a recurring rule for an older form; new clients use `POST /api/manage/{kind}`. A saved rule has no payment authority.",
+        "operationId": "create_policy_api_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Body"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/policies/{policy_id}/authorize": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Authorize a rule for simulation",
+        "description": "Gives a rule simulation-only payment authority with a per-run cap.",
+        "operationId": "authorize_policy_api_policies__policy_id__authorize_post",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Policy Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizationIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/policies/{policy_id}/pause": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Pause or resume a rule",
+        "description": "Pauses a rule, or resumes it when `paused` is false.",
+        "operationId": "pause_policy_api_policies__policy_id__pause_post",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "paused",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Paused"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/policies/{policy_id}/skip-next": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Skip a rule's next run",
+        "description": "Skips the next run of a rule.",
+        "operationId": "skip_next_policy_api_policies__policy_id__skip_next_post",
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Policy Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/bills/{bill_id}/pay-once": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Draft a one-time bill payment",
+        "description": "Prepares a payment draft for a bill occurrence. Nothing is submitted.",
+        "operationId": "pay_bill_once_api_bills__bill_id__pay_once_post",
+        "parameters": [
+          {
+            "name": "bill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bill Id"
+            }
+          },
+          {
+            "name": "occurrence_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Occurrence Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/debt/compare": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Compare debt payoff strategies",
+        "description": "Compares debt payoff strategies, optionally with an extra monthly payment.",
+        "operationId": "debt_compare_api_debt_compare_get",
+        "parameters": [
+          {
+            "name": "extra_payment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000000.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Extra Payment"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/debt/what-if": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Model an extra debt payment",
+        "description": "Shows the effect of an extra payment toward debt.",
+        "operationId": "debt_what_if_api_debt_what_if_get",
+        "parameters": [
+          {
+            "name": "amount",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000000.0,
+                  "exclusiveMinimum": 0.0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                }
+              ],
+              "title": "Amount"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/mortgage/scenarios": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Compare mortgage scenarios",
+        "description": "Compares mortgage payoff with an optional lump sum and an optional extra monthly payment.",
+        "operationId": "mortgage_api_mortgage_scenarios_get",
+        "parameters": [
+          {
+            "name": "lump_sum",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000000.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lump Sum"
+            }
+          },
+          {
+            "name": "extra_monthly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000000.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Extra Monthly"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/mortgage/biweekly": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Compare biweekly mortgage payments",
+        "description": "Compares a biweekly payment program with monthly payments, net of an optional annual program fee.",
+        "operationId": "biweekly_api_mortgage_biweekly_get",
+        "parameters": [
+          {
+            "name": "program_fee_per_year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Program Fee Per Year"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/cards/choose": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Choose a card for a purchase",
+        "description": "Recommends a card for a purchase from rewards, category, merchant, channel, foreign fees and processing fees.",
+        "operationId": "choose_card_api_cards_choose_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/cards/utilization": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Check utilization timing",
+        "description": "Checks statement utilization timing for a card, optionally with a planned payment.",
+        "operationId": "card_utilization_api_cards_utilization_get",
+        "parameters": [
+          {
+            "name": "card_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Card Id"
+            }
+          },
+          {
+            "name": "payment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000000.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Payment"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/tax/net-benefit": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Compare savings with debt paydown",
+        "description": "Compares the after-tax benefit of saving an amount with paying down debt over `horizon_days`.",
+        "operationId": "net_benefit_api_tax_net_benefit_get",
+        "parameters": [
+          {
+            "name": "amount",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1000000000.0,
+                  "exclusiveMinimum": 0.0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                }
+              ],
+              "title": "Amount"
+            }
+          },
+          {
+            "name": "horizon_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 3650,
+              "minimum": 1,
+              "default": 365,
+              "title": "Horizon Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/tax/profile": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Get tax assumptions",
+        "description": "Returns the workspace tax assumptions.",
+        "operationId": "tax_profile_api_tax_profile_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/execution/build": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Build payment drafts",
+        "description": "Builds payment drafts from the paycheck allocation for a month or an income event.",
+        "operationId": "execution_build_api_execution_build_post",
+        "parameters": [
+          {
+            "name": "year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2200,
+                  "minimum": 1900
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Year"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 12,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "name": "income_event_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Income Event Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/execution/run/{group_id}": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Run a simulated payment group",
+        "description": "Runs a payment group through the simulation provider. Requires `confirm_simulation` and a sample workspace.",
+        "operationId": "execution_run_api_execution_run__group_id__post",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/execution/recover/{leg_id}": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Recover a simulated payment leg",
+        "description": "Runs recovery for a simulated payment leg in a sample workspace.",
+        "operationId": "execution_recover_api_execution_recover__leg_id__post",
+        "parameters": [
+          {
+            "name": "leg_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Leg Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/execution/pause-all": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Pause all payment execution",
+        "description": "Pauses payment execution for the whole workspace.",
+        "operationId": "pause_all_api_execution_pause_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/execution/resume": {
+      "post": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Resume payment execution",
+        "description": "Resumes payment execution after a global pause.",
+        "operationId": "resume_all_api_execution_resume_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/execution/groups": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "List payment groups",
+        "description": "Lists payment groups, the global pause state and reserved amounts.",
+        "operationId": "execution_groups_api_execution_groups_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/execution/groups/{group_id}": {
+      "get": {
+        "tags": [
+          "Financial workspace"
+        ],
+        "summary": "Get a payment group",
+        "description": "Returns one payment group with the preflight checks for each leg.",
+        "operationId": "execution_group_api_execution_groups__group_id__get",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bootstrap": {
+      "get": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Load the application",
+        "description": "Returns what the web app needs on first load, including workspace data, calculations, the revision and capability flags such as bank linking and payment simulation.",
+        "operationId": "bootstrap_api_bootstrap_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Get dashboard calculations",
+        "description": "Returns the dashboard calculations, cached by workspace revision.",
+        "operationId": "dashboard_api_dashboard_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/workspace": {
+      "get": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Get workspace records",
+        "description": "Returns the workspace records used by management forms.",
+        "operationId": "workspace_api_workspace_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/manage/{kind}": {
+      "post": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Create a record",
+        "description": "Creates a workspace record of the given kind. Send `If-Match` with the workspace revision to detect concurrent changes.",
+        "operationId": "create_record_api_manage__kind__post",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/manage/{kind}/{record_id}": {
+      "patch": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Update a record",
+        "description": "Updates a workspace record of the given kind. Send `If-Match` with the workspace revision.",
+        "operationId": "update_record_api_manage__kind___record_id__patch",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Record Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/transactions/preview": {
+      "post": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Preview a CSV import",
+        "description": "Parses CSV text with an optional column mapping and returns rows, duplicates and errors without saving.",
+        "operationId": "preview_transactions_api_transactions_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Payload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/transactions/import": {
+      "post": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Import CSV transactions",
+        "description": "Imports previewed CSV rows in one transaction and skips duplicates. Reported account balances are unchanged.",
+        "operationId": "import_transactions_api_transactions_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Payload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/transactions/{transaction_id}": {
+      "patch": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "Correct a transaction",
+        "description": "Corrects a transaction's description, category or kind.",
+        "operationId": "update_transaction_api_transactions__transaction_id__patch",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          }
+        }
+      }
+    },
+    "/api/transactions": {
+      "get": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "List transactions",
+        "description": "Lists transactions newest first, filtered by account, text or category, with `limit` and `offset` paging.",
+        "operationId": "transactions_api_transactions_get",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/audit": {
+      "get": {
+        "tags": [
+          "Workspace data"
+        ],
+        "summary": "List recent changes",
+        "description": "Lists recent workspace change events with the action, revision, actor and time.",
+        "operationId": "audit_api_audit_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ask": {
+      "post": {
+        "tags": [
+          "Assistant"
+        ],
+        "summary": "Ask the assistant",
+        "description": "Answers a question or request inside a saved conversation. Numbers come from deterministic calculations; requested changes come back as proposals that need confirmation. Rate limited per user and by assistant capacity.",
+        "operationId": "ask_api_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          }
+        }
+      }
+    },
+    "/api/ask/history": {
+      "get": {
+        "tags": [
+          "Assistant"
+        ],
+        "summary": "List saved answers",
+        "description": "Lists the signed-in user's recent saved answers in this workspace.",
+        "operationId": "history_api_ask_history_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/ask/suggestions": {
+      "get": {
+        "tags": [
+          "Assistant"
+        ],
+        "summary": "Get example questions",
+        "description": "Returns example questions for the assistant.",
+        "operationId": "suggestions_api_ask_suggestions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/llm/health": {
+      "get": {
+        "tags": [
+          "Assistant"
+        ],
+        "summary": "Get model status",
+        "description": "Returns the cached status of the operator-configured model.",
+        "operationId": "llm_health_api_llm_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/bank/connections": {
+      "get": {
+        "tags": [
+          "Bank connections"
+        ],
+        "summary": "List bank connections",
+        "description": "Lists bank connections and whether bank linking is configured and available for this workspace.",
+        "operationId": "connections_api_bank_connections_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/api/bank/link-token": {
+      "post": {
+        "tags": [
+          "Bank connections"
+        ],
+        "summary": "Start bank linking",
+        "description": "Creates a Plaid Link token. Owners and approvers only; sample workspaces cannot link banks.",
+        "operationId": "link_token_api_bank_link_token_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/api/bank/exchange": {
+      "post": {
+        "tags": [
+          "Bank connections"
+        ],
+        "summary": "Finish bank linking",
+        "description": "Exchanges a Plaid public token and imports supported accounts and transactions once.",
+        "operationId": "exchange_api_bank_exchange_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExchangeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/api/bank/sync/{connection_id}": {
+      "post": {
+        "tags": [
+          "Bank connections"
+        ],
+        "summary": "Sync a bank connection",
+        "description": "Imports new transactions and balance snapshots for a bank connection.",
+        "operationId": "sync_api_bank_sync__connection_id__post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bank/connections/{connection_id}": {
+      "delete": {
+        "tags": [
+          "Bank connections"
+        ],
+        "summary": "Disconnect a bank",
+        "description": "Requests provider revocation and removes the stored token. Imported records are kept.",
+        "operationId": "disconnect_api_bank_connections__connection_id__delete",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "The If-Match header does not contain a workspace revision."
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations": {
+      "get": {
+        "tags": [
+          "Conversations"
+        ],
+        "summary": "List conversations",
+        "description": "Lists the signed-in user's saved conversations.",
+        "operationId": "list_conversations_api_conversations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "summary": "Create a conversation",
+        "description": "Creates an empty conversation.",
+        "operationId": "create_conversation_api_conversations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/conversations/{conversation_id}": {
+      "get": {
+        "tags": [
+          "Conversations"
+        ],
+        "summary": "Get a conversation",
+        "description": "Returns a conversation's messages, sources and proposals.",
+        "operationId": "conversation_api_conversations__conversation_id__get",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Conversations"
+        ],
+        "summary": "Delete a conversation",
+        "description": "Deletes a conversation and its saved messages.",
+        "operationId": "delete_conversation_api_conversations__conversation_id__delete",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "List documents",
+        "description": "Lists the documents in the private library.",
+        "operationId": "list_documents_api_documents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Upload a document",
+        "description": "Adds a PDF, TXT or Markdown file of up to 2 MB to the private library. PDFs need selectable text.",
+        "operationId": "upload_document_api_documents_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_document_api_documents_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "413": {
+            "description": "The upload is too large."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          }
+        }
+      }
+    },
+    "/api/documents/search": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Search documents",
+        "description": "Finds matching passages in private documents, optionally limited to selected documents.",
+        "operationId": "search_documents_api_documents_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "title": "Q"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 8,
+              "minimum": 1,
+              "default": 6,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Get a document",
+        "description": "Returns a document with its extracted excerpts.",
+        "operationId": "document_detail_api_documents__document_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Delete a document",
+        "description": "Removes a document from the library and from future retrieval.",
+        "operationId": "delete_document_api_documents__document_id__delete",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/setup": {
+      "get": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Get MCP setup",
+        "description": "Returns the export bridge configuration and the operator-approved servers available for imports.",
+        "operationId": "setup_api_mcp_setup_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/api/mcp/tokens": {
+      "get": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "List MCP read tokens",
+        "description": "Lists the user's MCP read tokens without their secrets.",
+        "operationId": "tokens_api_mcp_tokens_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Create an MCP read token",
+        "description": "Creates an expiring, read-only token for an MCP client. The secret is shown once, and only one active token is allowed.",
+        "operationId": "create_token_api_mcp_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          }
+        }
+      }
+    },
+    "/api/mcp/tokens/{token_id}": {
+      "delete": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Revoke an MCP read token",
+        "description": "Revokes an MCP read token.",
+        "operationId": "revoke_token_api_mcp_tokens__token_id__delete",
+        "parameters": [
+          {
+            "name": "token_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/connections": {
+      "get": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "List MCP connections",
+        "description": "Lists the user's connections to operator-approved MCP servers.",
+        "operationId": "connections_api_mcp_connections_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Connect an MCP server",
+        "description": "Connects to an operator-approved MCP server, storing any bearer token encrypted. One connection at a time.",
+        "operationId": "create_connection_api_mcp_connections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/api/mcp/connections/{connection_id}": {
+      "delete": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Remove an MCP connection",
+        "description": "Removes an MCP connection and its stored credential.",
+        "operationId": "delete_connection_api_mcp_connections__connection_id__delete",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/connections/{connection_id}/catalog": {
+      "get": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Browse an MCP server",
+        "description": "Lists the approved read tools and resources available through a connection.",
+        "operationId": "catalog_api_mcp_connections__connection_id__catalog_get",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          },
+          "502": {
+            "description": "The remote MCP server returned an error."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mcp/connections/{connection_id}/import": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Import from an MCP server",
+        "description": "Calls an approved read tool or reads an approved resource and saves the result as a private document.",
+        "operationId": "import_result_api_mcp_connections__connection_id__import_post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          },
+          "502": {
+            "description": "The remote MCP server returned an error."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/api/mcp/export/tools": {
+      "get": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "List tools for MCP clients",
+        "description": "Lists the read-only financial tools available to an MCP client. Uses a FinPilot MCP bearer token, not the session cookie.",
+        "operationId": "export_tools_api_mcp_export_tools_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          }
+        }
+      }
+    },
+    "/api/mcp/export/call": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Call a tool for an MCP client",
+        "description": "Runs one read-only financial tool for an MCP client authenticated with a bearer token.",
+        "operationId": "export_call_api_mcp_export_call_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "429": {
+            "description": "A rate limit or capacity limit was reached; retry shortly."
+          }
+        }
+      }
+    },
+    "/api/assistant/capabilities": {
+      "get": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "List assistant capabilities",
+        "description": "Lists every capability with its input schema, authorization and availability, plus selectable records and limits.",
+        "operationId": "capabilities_api_assistant_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          }
+        }
+      }
+    },
+    "/api/assistant/proposals": {
+      "get": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "List proposals",
+        "description": "Lists the action proposals in a conversation.",
+        "operationId": "proposals_api_assistant_proposals_get",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "Create a proposal",
+        "description": "Creates a reviewed proposal with up to four operations. Nothing changes until it is confirmed.",
+        "operationId": "create_proposal_api_assistant_proposals_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/assistant/proposals/{proposal_id}": {
+      "get": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "Get a proposal",
+        "description": "Returns a proposal with its preview and status.",
+        "operationId": "get_proposal_api_assistant_proposals__proposal_id__get",
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "Edit a proposal",
+        "description": "Changes the operations of an unconfirmed proposal. Requires the current proposal version.",
+        "operationId": "edit_proposal_api_assistant_proposals__proposal_id__patch",
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/assistant/proposals/{proposal_id}/cancel": {
+      "post": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "Cancel a proposal",
+        "description": "Cancels a proposal at the given version.",
+        "operationId": "cancel_proposal_api_assistant_proposals__proposal_id__cancel_post",
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    },
+    "/api/assistant/proposals/{proposal_id}/confirm": {
+      "post": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "Confirm a proposal",
+        "description": "Applies a proposal once at the given version. Provider actions, such as bank sync, run outside the financial transaction.",
+        "operationId": "confirm_proposal_api_assistant_proposals__proposal_id__confirm_post",
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "409": {
+            "description": "The workspace revision changed, or the record's current state does not allow this action."
+          },
+          "422": {
+            "description": "The request failed validation."
+          },
+          "502": {
+            "description": "The remote MCP server returned an error."
+          },
+          "503": {
+            "description": "A dependency is unavailable, such as the database, a provider or its configuration."
+          }
+        }
+      }
+    },
+    "/api/assistant/csv-preview": {
+      "post": {
+        "tags": [
+          "Assistant actions"
+        ],
+        "summary": "Upload a CSV for review",
+        "description": "Uploads a UTF-8 CSV for a conversation, previews the rows and creates an import proposal when the file is valid.",
+        "operationId": "csv_preview_api_assistant_csv_preview_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_csv_preview_api_assistant_csv_preview_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
+          },
+          "404": {
+            "description": "The record does not exist in this workspace."
+          },
+          "413": {
+            "description": "The upload is too large."
+          },
+          "422": {
+            "description": "The request failed validation."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AskIn": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 3000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "untrusted_context": {
+            "type": "string",
+            "maxLength": 8000,
+            "title": "Untrusted Context",
+            "default": ""
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViewingContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tool_choice": {
+            "$ref": "#/components/schemas/ToolChoice",
+            "default": "router"
+          },
+          "include_evidence": {
+            "type": "boolean",
+            "title": "Include Evidence",
+            "default": true
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
+          },
+          "workflow_mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "model"
+            ],
+            "title": "Workflow Mode",
+            "default": "auto"
+          },
+          "workflow_input": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OperationIn"
+                },
+                "type": "array",
+                "maxItems": 4,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Input"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "AskIn"
+      },
+      "AuthorizationIn": {
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/AuthorizationMode",
+            "default": "standing"
+          },
+          "per_run_cap": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Per Run Cap"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "per_run_cap"
+        ],
+        "title": "AuthorizationIn"
+      },
+      "AuthorizationMode": {
+        "type": "string",
+        "enum": [
+          "explore",
+          "one_time",
+          "scheduled",
+          "standing"
+        ],
+        "title": "AuthorizationMode",
+        "description": "Section 21, table 14."
+      },
+      "Body_csv_preview_api_assistant_csv_preview_post": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "title": "Conversation Id"
+          },
+          "account_id": {
+            "type": "string",
+            "title": "Account Id"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "conversation_id",
+          "account_id",
+          "file"
+        ],
+        "title": "Body_csv_preview_api_assistant_csv_preview_post"
+      },
+      "Body_upload_document_api_documents_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_document_api_documents_post"
+      },
+      "CallBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CallBody"
+      },
+      "CardQuery": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Amount"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Category",
+            "default": "base"
+          },
+          "merchant": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Merchant",
+            "default": ""
+          },
+          "channel": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Channel",
+            "default": "in_person"
+          },
+          "foreign": {
+            "type": "boolean",
+            "title": "Foreign",
+            "default": false
+          },
+          "mcc_certain": {
+            "type": "boolean",
+            "title": "Mcc Certain",
+            "default": true
+          },
+          "processing_fee_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Processing Fee Rate",
+            "default": "0"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "title": "CardQuery"
+      },
+      "ConnectionBody": {
+        "properties": {
+          "server_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Server Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Token",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "server_id"
+        ],
+        "title": "ConnectionBody"
+      },
+      "ConversationIn": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Title",
+            "default": "New conversation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ConversationIn"
+      },
+      "Credentials": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "Credentials"
+      },
+      "EditIn": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "operations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OperationIn"
+                },
+                "type": "array",
+                "maxItems": 4,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "EditIn"
+      },
+      "ExchangeBody": {
+        "properties": {
+          "public_token": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Public Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "public_token"
+        ],
+        "title": "ExchangeBody"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ImportBody": {
+        "properties": {
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          },
+          "resource_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 150,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ImportBody"
+      },
+      "OperationIn": {
+        "properties": {
+          "capability": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Capability"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Arguments"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "capability"
+        ],
+        "title": "OperationIn"
+      },
+      "ProposalIn": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Conversation Id"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/OperationIn"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Operations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conversation_id",
+          "operations"
+        ],
+        "title": "ProposalIn"
+      },
+      "Registration": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "sample_data": {
+            "type": "boolean",
+            "title": "Sample Data",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "name"
+        ],
+        "title": "Registration"
+      },
+      "SimulationIn": {
+        "properties": {
+          "confirm_simulation": {
+            "type": "boolean",
+            "title": "Confirm Simulation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confirm_simulation"
+        ],
+        "title": "SimulationIn"
+      },
+      "TokenBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "expires_days": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Expires Days",
+            "default": 30
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TokenBody"
+      },
+      "ToolChoice": {
+        "type": "string",
+        "enum": [
+          "router",
+          "model",
+          "auto"
+        ],
+        "title": "ToolChoice"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VersionIn": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "VersionIn"
+      },
+      "ViewingContext": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "page": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Page",
+            "default": "overview"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ViewingContext"
+      }
+    }
+  }
+}

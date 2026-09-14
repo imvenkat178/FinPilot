@@ -11,12 +11,12 @@
 
 - **When:** 2026-09-14
 - **Who:** Claude Opus 5 (Claude Code)
-- **What happened:** The owner asked to commit the two shared pages and to implement the agent memory kit in this repository. Both pages are now committed as generated files that cannot drift. `docs/roadmap.html` is rebuilt from `ROADMAP.md` by `python scripts/roadmap.py write`, using the template `scripts/roadmap_page.html` configured in `.agent-memory.json`. `docs/agent-memory-kit/guide.html` is rebuilt from the kit README by `docs/agent-memory-kit/build_guide.py`. The roadmap check and `tests/test_agent_memory_kit.py` fail when either page is stale. The kit was already installed; the only template not active is the GitHub workflow, still blocked because `gh auth status` still shows no `workflow` scope. As local enforcement, `.githooks/pre-push` runs the roadmap check and the branch check, and this clone has it enabled with `git config core.hooksPath .githooks`. The kit templates and guide now include the page template and the hook. No application code changed.
-- **State left behind:** Committed and pushed by the commit that records this session; the pre-push hook ran on that push. `prototype/` is still untracked. The hook setting lives only in this clone's `.git/config`; other clones need the command once.
+- **What happened:** The owner agreed to fill the documentation gaps from the audit. Added a user guide, calculation methods, a configuration reference and frontend notes in `docs/`, plus `SECURITY.md`, `CONTRIBUTING.md` and `CHANGELOG.md`. Every endpoint now has a summary, a description and error responses from `finpilot/api/route_docs.py`, applied in `create_app`; FastAPI 0.141 keeps included routers as wrappers, so `iter_api_routes` walks into them. `scripts/build_docs.py` generates `docs/api-reference.md`, `docs/api/openapi.json`, `docs/ai-capabilities.md` and `docs/data-model.md`, and `tests/test_docs.py` fails when they are stale or when a route or setting is undocumented. The README has a documentation map and lists all seven frontend suites. Roadmap: `G13.1`, `G13.4`, `G13.6` to `G13.9` and `G13.12` are done, `G13.10` and `G13.11` are in progress, and `G13.3` waits on the owner. The full suite ran in 79 seconds rather than the 18.5 minutes recorded on 2026-09-13, so `G5.2` dropped to P2 and `G5.1` no longer waits for it.
+- **State left behind:** Committed and pushed to `origin/main` at the owner's request by the commit that records this session; the pre-push hook ran on that push. `prototype/` is still untracked.
 - **Resume by:**
   1. `git status --short` should show only `?? prototype/`.
   2. `python scripts/roadmap.py next`.
-  3. Ask the owner to run `gh auth refresh -h github.com -s workflow`, then finish `G5.8.2`.
+  3. Ask the owner about the decisions `G13.2`, `G13.3` and `G13.5`.
   4. Start `G1.1`.
 
 ## 2. Repository state
@@ -24,11 +24,11 @@
 | Item | Current value |
 | --- | --- |
 | Branch | `main`, pushed to `origin/main` (https://github.com/imvenkat178/FinPilot.git). The remote also has `codex/conversational-finance` (last commit `bf7ab17`, 2026-09-12), which predates the memory system |
-| Last commit | The commit recording this session, on top of `2d92256` (2026-09-13) "docs: record the push and prepare CI enforcement for agent memory" |
+| Last commit | The commit recording this session, on top of `5a04ad8` (2026-09-14) "docs: commit generated roadmap and kit pages, add pre-push checks" |
 | Uncommitted | Only `prototype/` (untracked, nested `.git`, see `G6.2`) |
 | What `76f95b1` contains | The reviewed AI workflow layer (80 typed capabilities, preview and confirm, receipts), saved conversations, document library with citations, MCP client and server, sample payment actions, their validation evidence, and the handoff system itself (`AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `scripts/check_handoff.py`, `tests/test_handoff.py`, `.github/PULL_REQUEST_TEMPLATE.md`). Described in `END_TO_END_VALIDATION.md` and `ARCHITECTURE.md` |
 | Toolchain verified here | Python 3.12.14 in `.venv/`, Node v24.19.0, Windows 11 |
-| Last full test run | 2026-09-13, before this commit: pytest 738 passed, 1 warning, 18 min 30 s (`validation/python-e2e.txt`); all seven frontend suites passed (`validation/frontend-e2e.txt`). Not re-run after the commit (no application code changed by the commit itself, only staging of already-written files) |
+| Last full test run | 2026-09-14: `pytest -q -p no:cacheprovider` gave 761 passed, 1 warning in 79.23 s after the route documentation change. The 2026-09-13 run took 18 min 30 s (`validation/python-e2e.txt`). Frontend suites were not rerun; no web code changed |
 | CI | None on GitHub; the workflow is blocked on the token's `workflow` scope (`G5.8`). Locally, `.githooks/pre-push` runs the memory checks where `core.hooksPath` is set |
 | Local model used for AI evidence | Ollama, `llama3.2:latest` (3.2B Q4_K_M, CPU), 12 s inference budget |
 
@@ -47,6 +47,7 @@ Working and covered by tests unless noted. Details live in `README.md` ("Availab
 - **Deployment assets:** nonroot Dockerfile, `compose.yaml`, `DEPLOYMENT.md`. Docker image not built or run here.
 - **Evidence:** benchmark scripts and dated JSON/text evidence under `validation/`; Llama interpretation matrix 115/140 exact, 77/80 capabilities with an accepted interpretation.
 - **Agent coordination:** `AGENTS.md` protocol, `HANDOFF.md` validated by `scripts/check_handoff.py`, and `ROADMAP.md` validated and summarized by `scripts/roadmap.py`; both validators run inside pytest. A portable, tested copy for other repositories lives in `docs/agent-memory-kit/`. A branch check (`--base`) and a GitHub Actions workflow template exist; the workflow is not active yet (`G5.8`). Generated pages `docs/roadmap.html` and `docs/agent-memory-kit/guide.html` are checked for staleness, and `.githooks/pre-push` runs the memory checks before pushes.
+- **Documentation:** a user guide, calculation methods, a configuration reference and frontend notes, plus generated API, capability and data model references in `docs/`, kept current by `tests/test_docs.py`.
 
 ## 4. Next (current focus)
 
@@ -56,8 +57,9 @@ Current focus, chosen by the last session:
 
 1. `G1.1` Privacy-safe request logging. A verified defect with a small fix.
 2. `G1.2` Correct client addresses behind a proxy. Reproduce behind a proxy first.
-3. `G5.2` Fast test tier, which unblocks `G5.1` continuous integration.
+3. `G5.1` Continuous integration; the suite is fast enough that it no longer waits for `G5.2`.
 4. Ask the owner to grant the `workflow` scope for `G5.8`, and to decide `G7.2` (production model host), `G2.1` (email provider) and `G6.2` (prototype directory).
+5. Documentation decisions for the owner: `G13.2` (license), `G13.3` (security reporting) and `G13.5` (specification).
 
 ## 5. Improvement areas (ideas, not commitments)
 
@@ -68,7 +70,7 @@ Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend
 - Hosted multi-user load, TLS and network latency, live bank behaviour and external MCP OAuth are **unverified**. PostgreSQL checks were local and disposable.
 - Real money movement is **not implemented** and must stay that way without an explicit product decision. Simulation is sample-workspace only.
 - The Llama evidence is CPU-bound and shared the machine with other processes; treat timings as observations, not benchmarks.
-- Frontend suites hit a live server and register throwaway users; they need port 8100 free or `FINPILOT_TEST_URL` set.
+- Only `tests/frontend.mjs` calls a live server and registers a throwaway user; it needs port 8100 or `FINPILOT_TEST_URL`. The other `tests/*_frontend.mjs` suites reference no server (checked 2026-09-14).
 - `.local/` holds earlier evaluation runs that are deliberately not merged into the current matrix. Do not cite them as current.
 - Web asset fingerprints are set at process start; a stale server serves stale JS.
 - The application does not load `.env` on native startup; set variables in the shell or use compose.
@@ -83,6 +85,7 @@ Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend
 - The generated pages load fonts from Google Fonts, and the guide page loads its Markdown renderer from cdnjs, so offline the guide shows raw Markdown. GitHub displays both files as source; open them in a browser, or enable GitHub Pages, to see them rendered.
 - `core.hooksPath` is a per-clone setting, so the pre-push check only runs in clones where someone enabled it.
 - The repository is public, so `ROADMAP.md` and this file publicly describe unfixed weaknesses such as `G1.1` and `G1.2`. No hosted deployment exists yet.
+- Remaining documentation gaps are tracked in `G13`: no `LICENSE`, no enabled private vulnerability reporting or promised response time, no specification for the requirement IDs cited in code, and no link from the app to `docs/user-guide.md`.
 
 ## 7. Decisions (do not re-litigate without a reason)
 
@@ -102,6 +105,8 @@ Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend
 | 2026-09-13 | CI enforces handoff updates with `check_handoff.py --base` on pushes and pull requests, not `--strict` | `--strict` depends on uncommitted files and commit dates that CI does not have; it stays the local pre-finish check |
 | 2026-09-14 | The two shared pages are committed as generated files and checked for staleness, never edited by hand | The owner wanted them in the repository, and generation keeps them identical to their sources |
 | 2026-09-14 | Until the workflow can be pushed, a versioned pre-push hook runs the same checks locally | It needs no GitHub permission and uses the same commands as the workflow |
+| 2026-09-14 | Reference docs that mirror code are generated by `scripts/build_docs.py` and checked by `tests/test_docs.py`; endpoint text lives in `finpilot/api/route_docs.py` | Generated references cannot drift, and new routes or settings fail tests until they are documented |
+| 2026-09-14 | `G5.1` no longer depends on `G5.2`, and `G5.2` is P2 | The full suite took 79 seconds on 2026-09-14, so CI does not need a fast tier first |
 
 ## 8. Session log (append newest first)
 
@@ -115,6 +120,20 @@ Template. Copy it and keep the heading format exactly: date | agent | one-line t
 - **Not done / left broken:** anything incomplete, failing, or skipped, and why.
 - **Next agent should:** the first concrete thing to do.
 -->
+
+### 2026-09-14 | Claude Opus 5 (Claude Code) | Filled the documentation gaps
+- **Goal:** Write the missing documentation found by the audit, after the owner agreed.
+- **Changed:** Added `docs/user-guide.md`, `docs/calculation-methods.md`, `docs/configuration.md`, `docs/frontend.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `finpilot/api/route_docs.py`, `scripts/build_docs.py`, `tests/test_docs.py` and the generated `docs/api-reference.md`, `docs/api/openapi.json`, `docs/ai-capabilities.md` and `docs/data-model.md`. Changed `finpilot/api/app.py` to apply the route documentation, plus `README.md`, `AGENTS.md` facts, `DEPLOYMENT.md`, `.env.example` and the roadmap. Committed and pushed at the owner's request.
+- **Verified:** All 84 operations in the OpenAPI schema have a summary and a description, and `scripts/build_docs.py --check` passes. The capability reference lists 80 capabilities, each with an example request; the data model lists 20 tables. Relative links in the new documents resolve. The full suite gave 761 passed, 1 warning in 79.23 s, and the memory and documentation tests gave 23 passed. The calculation methods were written from the engine source and its docstring worked examples, not re-derived numerically. A grep showed that only `tests/frontend.mjs` references a running server.
+- **Not done / left broken:** The app does not link to the user guide (`G13.10`). There is no license (`G13.2`), no enabled private vulnerability reporting or promised response time (`G13.3`), and no specification for the requirement IDs (`G13.5`). Issue templates and `CODEOWNERS` wait on whether outside contributions are expected (`G13.11.2`). Frontend suites were not rerun.
+- **Next agent should:** Ask the owner about the open documentation decisions, then start `G1.1`.
+
+### 2026-09-14 | Claude Opus 5 (Claude Code) | Documentation audit
+- **Goal:** Answer whether the repository has complete feature, reference and technical documentation.
+- **Changed:** Added roadmap goal `G13. Documentation` with 12 sub-goals and task `G6.2.2`; regenerated `docs/roadmap.html`; updated sections 1, 2, 4 and 6 here. No application code or other documents.
+- **Verified:** Listed every tracked document and its headings. Compared every setting read in `finpilot/` and `scripts/` with `.env.example`, `DEPLOYMENT.md`, `README.md` and `MCP.md`. Parsed `finpilot/api/` with `ast`: none of the route handlers has a docstring, and 62 of 69 modules have module docstrings. Counted 18 tables in migrations, 12 named in `ARCHITECTURE.md`. Found spec-section and requirement-ID citations in code with no specification document tracked. Checked the README verification commands against `tests/*_frontend.mjs`. Confirmed `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, issue templates and `CODEOWNERS` are absent.
+- **Not done / left broken:** No documentation was written; the owner asked a question. Nothing committed.
+- **Next agent should:** Ask the owner about committing this audit and the `G13.2` and `G13.5` decisions.
 
 ### 2026-09-14 | Claude Opus 5 (Claude Code) | Committed the shared pages and enabled local enforcement
 - **Goal:** Commit the roadmap page and the kit guide page, and finish implementing the agent memory kit in this repository.

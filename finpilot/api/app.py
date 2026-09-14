@@ -28,6 +28,7 @@ from .conversation_routes import router as conversation_router
 from .document_routes import router as document_router
 from .mcp_routes import router as mcp_router
 from .action_routes import router as action_router
+from .route_docs import apply_route_docs
 from ..services.conversations import ConversationBusy
 
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -156,6 +157,7 @@ def create_app(database_url=None, *, llm=None):
     app.include_router(document_router)
     app.include_router(mcp_router)
     app.include_router(action_router)
+    apply_route_docs(app)
     app.mount(asset_prefix, StaticFiles(directory=WEB), name="versioned-assets")
     app.mount("/assets", StaticFiles(directory=WEB), name="assets")
     return app

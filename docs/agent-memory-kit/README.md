@@ -17,6 +17,7 @@ It was designed in the FinPilot repository and works with Claude Code, OpenAI Co
 | `.agent-memory.json` | Optional. Lists the path prefixes that count as code for `--strict`. | Per repository |
 | `tests/test_handoff.py`, `tests/test_roadmap.py` | Run the validators inside pytest so nobody forgets them. | Copy as is |
 | `.github/PULL_REQUEST_TEMPLATE.md` | A checklist that asks for the handoff and roadmap updates. | Copy as is |
+| `.github/workflows/agent-memory.yml` | Runs both validators, the branch check and the memory tests on every push and pull request in GitHub Actions. | Copy as is |
 
 ## Two kinds of memory
 
@@ -148,6 +149,10 @@ With `--strict` it also rejects:
 - Code changes without a `HANDOFF.md` change. Code means the prefixes in `.agent-memory.json`, or every non-Markdown path when that file is absent.
 - A newest session entry dated before the latest commit
 
+With `--base REF` it also rejects:
+
+- Commits since the merge base with `REF` that change code but not `HANDOFF.md`. The workflow runs this on every push and pull request, because `--strict` depends on uncommitted files and commit dates that CI does not have.
+
 ## Why it is built this way
 
 - **Plain Markdown with strict line formats.** It reads well on GitHub and in any editor, diffs cleanly in review, and any agent can edit it. The strict lines still make it machine-checkable.
@@ -157,15 +162,16 @@ With `--strict` it also rejects:
 - **A decision queue.** Agents surface vendor, pricing and product choices instead of making them silently.
 - **"Considered and not adopted".** Rejected ideas stay rejected, with reasons, so each new agent does not propose them again.
 - **An append-only session log.** It is an honest audit trail, including what was not done.
-- **Enforcement where agents already look.** The validators run inside the test suite and belong in CI, so the protocol does not depend on anyone remembering it.
+- **Enforcement where agents already look.** The validators run inside the test suite and in the included GitHub Actions workflow, so the protocol does not depend on anyone remembering it.
 - **Cross-checks.** The handoff cannot point at work that is finished or does not exist, and code cannot change without the handoff changing.
 
 ## Install in another repository
 
 1. Copy everything inside this kit's `templates/` folder into the new repository root. Keep the `.github/`, `scripts/` and `tests/` folders.
-2. If the repository does not use pytest, delete the two files in `tests/` and run the validators in CI instead.
-3. Open the repository in your coding agent and paste the bootstrap prompt below.
-4. Check the result yourself:
+2. If the repository does not use pytest, delete the two files in `tests/`. The workflow still runs both validators and the branch check.
+3. Keep `.github/workflows/agent-memory.yml` to enforce the protocol on GitHub. Pushing a workflow file needs a token with the `workflow` scope; with the GitHub CLI, run `gh auth refresh -h github.com -s workflow` first.
+4. Open the repository in your coding agent and paste the bootstrap prompt below.
+5. Check the result yourself:
 
    ```
    python scripts/roadmap.py check
@@ -173,7 +179,7 @@ With `--strict` it also rejects:
    python scripts/roadmap.py next
    ```
 
-5. Commit the files once you are satisfied.
+6. Commit and push the files once you are satisfied, then confirm the first workflow run passes.
 
 Use the repository's Python, such as `python3` or `.venv/bin/python`. Codex, Cursor and GitHub Copilot's coding agent read `AGENTS.md`; Claude Code reads `CLAUDE.md`, which imports it. For a tool that expects another file name, add a one-line file that points to `AGENTS.md`, or configure the tool to read it.
 
@@ -182,7 +188,7 @@ Use the repository's Python, such as `python3` or `.venv/bin/python`. Codex, Cur
 Paste this exactly into the agent, in the new repository, after copying the templates.
 
 ````text
-Set up the shared agent memory system in this repository. The kit files are already copied in: AGENTS.md, CLAUDE.md, HANDOFF.md, ROADMAP.md, scripts/roadmap.py, scripts/check_handoff.py, tests/test_handoff.py, tests/test_roadmap.py and .github/PULL_REQUEST_TEMPLATE.md. Keep every structure, heading, tag, format and rule exactly as the templates define them. Replace only placeholders and example content. Do not edit the two scripts.
+Set up the shared agent memory system in this repository. The kit files are already copied in: AGENTS.md, CLAUDE.md, HANDOFF.md, ROADMAP.md, scripts/roadmap.py, scripts/check_handoff.py, tests/test_handoff.py, tests/test_roadmap.py, .github/PULL_REQUEST_TEMPLATE.md and .github/workflows/agent-memory.yml. Keep every structure, heading, tag, format and rule exactly as the templates define them. Replace only placeholders and example content. Do not edit the two scripts.
 
 1. Survey the repository before writing anything: README and other docs, directory layout, language, framework and package manager, how to install, run and test, CI configuration, the git branch, recent commits and uncommitted work.
 
@@ -216,5 +222,6 @@ Set up the shared agent memory system in this repository. The kit files are alre
 | Seeing overall progress | `python scripts/roadmap.py status` |
 | After editing `ROADMAP.md` | `python scripts/roadmap.py write` |
 | Before committing | `python scripts/check_handoff.py --strict` |
+| Before merging a branch | `python scripts/check_handoff.py --base main` |
 | Making a decision | Tell the agent your answer. It records it in `HANDOFF.md` section 7 and moves the sub-goal forward. |
 | Building a dashboard | `python scripts/roadmap.py json` exports the whole tree |

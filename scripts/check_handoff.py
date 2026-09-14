@@ -1,8 +1,9 @@
 """Validate HANDOFF.md, the shared working memory for agents on this repository.
 
 Usage:
-    python scripts/check_handoff.py            # structure checks, plus ROADMAP.md checks
-    python scripts/check_handoff.py --strict   # also fail when code changed but HANDOFF.md did not
+    python scripts/check_handoff.py               # structure checks, plus ROADMAP.md checks
+    python scripts/check_handoff.py --strict      # also fail when uncommitted code changed but HANDOFF.md did not
+    python scripts/check_handoff.py --base main   # also fail when commits since main change code but not HANDOFF.md
 
 Structure checks (always):
   * every numbered section 1..8 is present, in order
@@ -17,9 +18,14 @@ Roadmap checks (always, when ROADMAP.md exists):
 
 Freshness checks (--strict, needs git):
   * if files under the code paths are modified/added/deleted in the working tree or index,
-    HANDOFF.md must also be modified or untracked (i.e. it was touched too). Code paths come
-    from .agent-memory.json {"code_paths": [...]}; without it, every non-Markdown path counts.
+    HANDOFF.md must also be modified or untracked (i.e. it was touched too)
   * the newest session entry must not predate the HEAD commit
+
+Branch checks (--base REF, needs git; meant for CI and pull requests):
+  * if the commits since the merge base with REF change code paths, they must also change HANDOFF.md
+
+Code paths come from .agent-memory.json {"code_paths": [...]}; without it, every non-Markdown
+path counts. Python and pytest caches never count.
 
 Exit code 0 when everything passes, 1 when a check fails, 2 on usage errors.
 """
@@ -60,7 +66,7 @@ EXEMPT = {"HANDOFF.md", "AGENTS.md", "CLAUDE.md", "ROADMAP.md"}
 
 
 def code_paths(config: Path = CONFIG) -> tuple[str, ...]:
-    """Path prefixes that count as "code changed" for --strict.
+    """Path prefixes that count as "code changed" for --strict and --base.
 
     Set them in .agent-memory.json, for example {"code_paths": ["src/", "tests/", "Dockerfile"]}.
     Without that file, every changed path except Markdown files counts as code.
@@ -68,6 +74,15 @@ def code_paths(config: Path = CONFIG) -> tuple[str, ...]:
     if config.exists():
         return tuple(json.loads(config.read_text(encoding="utf-8")).get("code_paths", ()))
     return ()
+
+
+def _code_changes(paths) -> list[str]:
+    roots = code_paths()
+    return sorted(
+        p for p in paths
+        if "__pycache__/" not in p and not p.endswith(".pyc") and ".pytest_cache/" not in p
+        and p not in EXEMPT and (p.startswith(roots) if roots else not p.lower().endswith(".md"))
+    )
 
 
 def _strip_html_comments(text: str) -> str:
@@ -189,6 +204,10 @@ def _git(*args: str) -> str:
     return result.stdout
 
 
+def _sample(paths: list[str]) -> str:
+    return ", ".join(paths[:5]) + (" ..." if len(paths) > 5 else "")
+
+
 def check_freshness(text: str) -> list[str]:
     problems: list[str] = []
     try:
@@ -204,21 +223,12 @@ def check_freshness(text: str) -> list[str]:
         path = raw[3:].strip().strip('"')
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        path = path.replace("\\", "/")
-        if "__pycache__/" in path or path.endswith(".pyc") or ".pytest_cache/" in path:
-            continue  # interpreter and test caches are never work to record
-        changed.add(path)
+        changed.add(path.replace("\\", "/"))
 
-    roots = code_paths()
-    code_changed = sorted(
-        p for p in changed
-        if p not in EXEMPT and (p.startswith(roots) if roots else not p.lower().endswith(".md"))
-    )
-    handoff_touched = "HANDOFF.md" in changed
-    if code_changed and not handoff_touched:
-        sample = ", ".join(code_changed[:5]) + (" ..." if len(code_changed) > 5 else "")
+    code_changed = _code_changes(changed)
+    if code_changed and "HANDOFF.md" not in changed:
         problems.append(
-            f"{len(code_changed)} code path(s) changed ({sample}) but HANDOFF.md was not updated; "
+            f"{len(code_changed)} code path(s) changed ({_sample(code_changed)}) but HANDOFF.md was not updated; "
             "add a session-log entry and refresh section 1"
         )
 
@@ -240,9 +250,25 @@ def check_freshness(text: str) -> list[str]:
     return problems
 
 
+def check_branch(base: str) -> list[str]:
+    try:
+        diff = _git("diff", "--name-only", f"{base}...HEAD")
+    except (RuntimeError, FileNotFoundError) as exc:
+        return [f"--base could not compare with {base}: {exc}"]
+    changed = {line.strip().replace("\\", "/") for line in diff.splitlines() if line.strip()}
+    code_changed = _code_changes(changed)
+    if code_changed and "HANDOFF.md" not in changed:
+        return [
+            f"commits since {base} change {len(code_changed)} code path(s) ({_sample(code_changed)}) "
+            "but not HANDOFF.md; record the work in HANDOFF.md"
+        ]
+    return []
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--strict", action="store_true", help="also check git freshness")
+    parser.add_argument("--strict", action="store_true", help="also check uncommitted changes and entry dates")
+    parser.add_argument("--base", metavar="REF", help="also check commits since the merge base with REF")
     parser.add_argument("--path", type=Path, default=HANDOFF, help="handoff file to validate")
     parser.add_argument("--roadmap", type=Path, default=ROADMAP, help="roadmap file to cross-check")
     args = parser.parse_args(argv)
@@ -257,6 +283,8 @@ def main(argv: list[str] | None = None) -> int:
         problems += check_roadmap_links(text, args.roadmap)
     if args.strict:
         problems += check_freshness(text)
+    if args.base:
+        problems += check_branch(args.base)
 
     if problems:
         print(f"check_handoff: {len(problems)} problem(s) in {args.path.name}")
@@ -264,8 +292,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {p}")
         print("See AGENTS.md for the handoff protocol.")
         return 1
-    suffix = " (strict)" if args.strict else ""
-    print(f"check_handoff: {args.path.name} OK" + (" with ROADMAP.md" if args.roadmap.exists() else "") + suffix)
+    modes = [m for m, on in (("strict", args.strict), (f"base {args.base}", bool(args.base))) if on]
+    print(f"check_handoff: {args.path.name} OK" + (" with ROADMAP.md" if args.roadmap.exists() else "")
+          + (f" ({', '.join(modes)})" if modes else ""))
     return 0
 
 

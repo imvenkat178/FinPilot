@@ -11,25 +11,25 @@
 
 - **When:** 2026-09-13
 - **Who:** Claude Opus 5 (Claude Code)
-- **What happened:** The user asked to implement the agent memory kit in this repository. The system was already installed here, so the session ran the kit's own install checklist against FinPilot and removed every difference from `docs/agent-memory-kit/templates/`. `AGENTS.md` now carries the kit's opening, protocol and "Things not to do" text word for word, while keeping FinPilot's facts, documentation map and conventions, plus a memory-scripts row, a code-paths row and a secrets convention. `ROADMAP.md` uses the kit's rules header with FinPilot's horizon meanings. `CLAUDE.md` is identical to the kit's. Memory commands now use `python`, which works because both scripts need only the standard library. `tests/test_agent_memory_kit.py` fails if the protocol text, roadmap rules or `CLAUDE.md` drift from the kit. No application code changed.
-- **State left behind:** Uncommitted, as listed in section 2. Nothing is committed or pushed.
+- **What happened:** The owner asked whether every item on the published roadmap page is in shared memory, and to commit, push and activate the memory system. The page data matches `ROADMAP.md` exactly apart from line numbers; those items are plans, and only the `G7.1` tasks are done. Committed the roadmap, validators, kit and aligned protocol files as `7389d2f` and pushed `main`, which also published `76f95b1` and `31424ba`. Added `check_handoff.py --base` so CI can require a handoff update on branches that change code, a GitHub Actions workflow template in the kit, and a git-based test. The workflow could not be activated in `.github/workflows/` because the GitHub token lacks the `workflow` scope (`G5.8`, blocked). No application code changed.
+- **State left behind:** Everything is committed and pushed to `origin/main` by the commit that records this session. `prototype/` is still untracked. The remote branch `codex/conversational-finance` (last commit `bf7ab17`, 2026-09-12) predates the memory system.
 - **Resume by:**
-  1. `git status --short` and confirm it matches section 2.
+  1. `git status --short` should show only `?? prototype/`.
   2. `python scripts/roadmap.py next`.
-  3. Ask the user about committing this work and the short-term decisions in section 4, then start `G1.1`.
-  4. To change the protocol, edit the kit template first and copy it here; `tests/test_agent_memory_kit.py` enforces the match.
+  3. Ask the owner to run `gh auth refresh -h github.com -s workflow`, then finish `G5.8.2`.
+  4. Start `G1.1`.
 
 ## 2. Repository state
 
 | Item | Current value |
 | --- | --- |
-| Branch | `main`, 2 commit(s) ahead of the last-fetched `origin/main` (https://github.com/imvenkat178/FinPilot.git); not pushed |
-| Last commit | `31424ba` (2026-09-13) "docs: record the commit outcome in HANDOFF.md"; the feature work itself is in `76f95b1` |
-| Uncommitted | New `ROADMAP.md`, `scripts/roadmap.py`, `tests/test_roadmap.py`, `tests/test_agent_memory_kit.py`, `docs/agent-memory-kit/`, `.agent-memory.json`, `conftest.py`; modified `AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `scripts/check_handoff.py`, `.github/PULL_REQUEST_TEMPLATE.md`; `prototype/` untracked (nested `.git`, see `G6.2`) |
+| Branch | `main`, pushed to `origin/main` (https://github.com/imvenkat178/FinPilot.git). The remote also has `codex/conversational-finance` (last commit `bf7ab17`, 2026-09-12), which predates the memory system |
+| Last commit | The commit recording this session, on top of `7389d2f` (2026-09-13) "feat: shared agent memory with roadmap, validators and portable kit" |
+| Uncommitted | Only `prototype/` (untracked, nested `.git`, see `G6.2`) |
 | What `76f95b1` contains | The reviewed AI workflow layer (80 typed capabilities, preview and confirm, receipts), saved conversations, document library with citations, MCP client and server, sample payment actions, their validation evidence, and the handoff system itself (`AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `scripts/check_handoff.py`, `tests/test_handoff.py`, `.github/PULL_REQUEST_TEMPLATE.md`). Described in `END_TO_END_VALIDATION.md` and `ARCHITECTURE.md` |
 | Toolchain verified here | Python 3.12.14 in `.venv/`, Node v24.19.0, Windows 11 |
 | Last full test run | 2026-09-13, before this commit: pytest 738 passed, 1 warning, 18 min 30 s (`validation/python-e2e.txt`); all seven frontend suites passed (`validation/frontend-e2e.txt`). Not re-run after the commit (no application code changed by the commit itself, only staging of already-written files) |
-| CI | None. There is no `.github/workflows/` and no pre-commit configuration |
+| CI | None active. The agent memory workflow is ready in the kit but blocked on the token's `workflow` scope (`G5.8`) |
 | Local model used for AI evidence | Ollama, `llama3.2:latest` (3.2B Q4_K_M, CPU), 12 s inference budget |
 
 ## 3. Done (capability ledger)
@@ -46,7 +46,7 @@ Working and covered by tests unless noted. Details live in `README.md` ("Availab
 - **Sample payment simulation:** preflight, independent legs, idempotency, recovery, audit; restricted to sample workspaces.
 - **Deployment assets:** nonroot Dockerfile, `compose.yaml`, `DEPLOYMENT.md`. Docker image not built or run here.
 - **Evidence:** benchmark scripts and dated JSON/text evidence under `validation/`; Llama interpretation matrix 115/140 exact, 77/80 capabilities with an accepted interpretation.
-- **Agent coordination:** `AGENTS.md` protocol, `HANDOFF.md` validated by `scripts/check_handoff.py`, and `ROADMAP.md` validated and summarized by `scripts/roadmap.py`; both validators run inside pytest. A portable, tested copy for other repositories lives in `docs/agent-memory-kit/`.
+- **Agent coordination:** `AGENTS.md` protocol, `HANDOFF.md` validated by `scripts/check_handoff.py`, and `ROADMAP.md` validated and summarized by `scripts/roadmap.py`; both validators run inside pytest. A portable, tested copy for other repositories lives in `docs/agent-memory-kit/`. A branch check (`--base`) and a GitHub Actions workflow template exist; the workflow is not active yet (`G5.8`).
 
 ## 4. Next (current focus)
 
@@ -57,7 +57,7 @@ Current focus, chosen by the last session:
 1. `G1.1` Privacy-safe request logging. A verified defect with a small fix.
 2. `G1.2` Correct client addresses behind a proxy. Reproduce behind a proxy first.
 3. `G5.2` Fast test tier, which unblocks `G5.1` continuous integration.
-4. Ask the user to decide `G6.1` (push), `G7.2` (production model host), `G2.1` (email provider) and `G6.2` (prototype directory).
+4. Ask the owner to grant the `workflow` scope for `G5.8`, and to decide `G7.2` (production model host), `G2.1` (email provider) and `G6.2` (prototype directory).
 
 ## 5. Improvement areas (ideas, not commitments)
 
@@ -79,6 +79,7 @@ Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend
 - Users cannot delete their account or export their data in the app. The MCP read bridge offers read access, not a download. Tracked as `G2.4` and `G2.5`.
 - Totals skip accounts whose currency differs from the household base currency, and bank linking is US only. Tracked as `G10.3`.
 - In the Claude Code sandbox on this machine, pytest cannot create its default temp or cache directories. Add `-p no:cacheprovider --basetemp <writable dir>`; verified 2026-09-13 with `tests/test_roadmap.py`.
+- The GitHub CLI token on this machine has the scopes `gist`, `read:org` and `repo` but not `workflow`, so a push that adds files under `.github/workflows/` would be rejected. Checked with `gh auth status` on 2026-09-13; a push was not attempted. Tracked as `G5.8`.
 
 ## 7. Decisions (do not re-litigate without a reason)
 
@@ -94,6 +95,8 @@ Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend
 | 2026-09-13 | Suggestions from the production-readiness list the user supplied were merged into `ROADMAP.md`; ones FinPilot already had are marked done, and seven that conflict with existing design are under "Considered and not adopted" | Keeps revocable server sessions, verified-only answers and revision-keyed caching unless the user decides otherwise |
 | 2026-09-13 | The memory system ships as a portable kit in `docs/agent-memory-kit/`; its script, test and PR-template copies must stay identical to this repository's, enforced by `tests/test_agent_memory_kit.py`, and repository-specific settings live in `.agent-memory.json` | Other repositories get exactly the tested system, and FinPilot cannot drift from it |
 | 2026-09-13 | FinPilot is the reference installation of the agent memory kit: the `AGENTS.md` protocol text, the `ROADMAP.md` rules header and `CLAUDE.md` must match the kit templates exactly, enforced by `tests/test_agent_memory_kit.py` | The same exact instructions run here and in every repository that installs the kit |
+| 2026-09-13 | The owner asked to commit and push the shared memory system; `main` was pushed to `origin` and `G6.1` is done | Agents that work from GitHub get the protocol, roadmap and kit |
+| 2026-09-13 | CI enforces handoff updates with `check_handoff.py --base` on pushes and pull requests, not `--strict` | `--strict` depends on uncommitted files and commit dates that CI does not have; it stays the local pre-finish check |
 
 ## 8. Session log (append newest first)
 
@@ -107,6 +110,13 @@ Template. Copy it and keep the heading format exactly: date | agent | one-line t
 - **Not done / left broken:** anything incomplete, failing, or skipped, and why.
 - **Next agent should:** the first concrete thing to do.
 -->
+
+### 2026-09-13 | Claude Opus 5 (Claude Code) | Pushed the shared memory and prepared CI enforcement
+- **Goal:** Confirm the roadmap page is fully captured in shared memory, then commit, push and activate the memory system.
+- **Changed:** Committed `7389d2f` and pushed `main`. Added `--base` to `scripts/check_handoff.py`, a branch-check test in `tests/test_handoff.py`, the workflow template `docs/agent-memory-kit/templates/.github/workflows/agent-memory.yml`, kit guide updates and roadmap sub-goal `G5.8`, and closed `G6.1`. No application code.
+- **Verified:** The published roadmap page data equals `scripts/roadmap.py json` output apart from line numbers (12 goals, 74 sub-goals, 171 tasks). `git ls-remote origin refs/heads/main` returned `7389d2f` after the push. No secret-shaped strings were found in the staged diff. The memory tests gave 17 passed with `-p no:cacheprovider --basetemp <scratchpad>`, including the new branch check. `check_handoff.py --base 3a2bdc9` passed. Full collection is 755 tests. Full suite not run because no application code changed.
+- **Not done / left broken:** The workflow is not active in `.github/workflows/` because the token lacks the `workflow` scope. `prototype/` remains undecided.
+- **Next agent should:** Ask the owner to grant the scope, then complete `G5.8.2`.
 
 ### 2026-09-13 | Claude Opus 5 (Claude Code) | Installed the agent memory kit here word for word
 - **Goal:** Implement the agent memory kit in this repository exactly as it is meant to be installed elsewhere.

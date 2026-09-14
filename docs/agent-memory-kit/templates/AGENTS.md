@@ -71,22 +71,20 @@ between tools; these files are not.
 
 ## Project facts you need
 
+<!-- Fill every row with verified facts. Delete rows that do not apply. -->
+
 | Item | Value |
 | --- | --- |
-| Product | FinPilot: hosted multi-tenant personal-finance workspace with a reviewed AI assistant |
-| Stack | Python 3.12, FastAPI, SQLAlchemy, Alembic, SQLite (dev/test) or PostgreSQL (hosted); vanilla JS frontend under `finpilot/web/`; Node 24 for frontend suites |
-| Virtualenv | `.venv/` (Windows: `.venv/Scripts/python.exe`) |
-| Memory scripts | `scripts/roadmap.py` and `scripts/check_handoff.py` use only the standard library, so `python` on PATH (Python 3.12 here) or the virtualenv both work |
-| Run locally | `.venv/Scripts/python.exe -m uvicorn finpilot.api.app:app --host 127.0.0.1 --port 8100` |
-| Python tests | `.venv/Scripts/python.exe -m pytest -q` (full suite takes about 18 to 19 minutes; run a single file while iterating) |
-| Sandboxed pytest | If `tmp_path` or the cache fails with `PermissionError`, add `-p no:cacheprovider --basetemp <writable dir>` |
-| Frontend tests | Need the app running on port 8100 (or `FINPILOT_TEST_URL`). Run `node tests/<name>_frontend.mjs` per suite; see `README.md` for the list |
+| Product | <one line: what this repository is and who uses it> |
+| Stack | <languages, frameworks, databases, package manager> |
+| Install | <command> |
+| Run locally | <command> |
+| Tests | <full command and roughly how long it takes> |
+| Fast tests | <command, if a faster subset exists> |
 | Roadmap | `python scripts/roadmap.py next`, `status`, `write`, `check`, `json` |
 | Handoff check | `python scripts/check_handoff.py --strict` |
-| Code paths for the strict check | `.agent-memory.json` lists FinPilot's code prefixes |
-| Migrations | Alembic, `alembic/versions/`. New tables or columns need a migration and `tests/test_migrations.py` must still pass |
-| Local data | `.local/` (git-ignored). Never commit it. Evidence files that docs cite live in `validation/` |
-| Config | Environment variables only; see `.env.example`. Native startup does not load `.env` |
+| Code paths for the strict check | `.agent-memory.json`, or every non-Markdown path when it is absent |
+| Config and secrets | <where configuration comes from, and what must never be committed> |
 
 ### Documentation map
 
@@ -95,32 +93,16 @@ between tools; these files are not.
 | `HANDOFF.md` | Shared session memory: last step, state, current focus, limits, decisions, session log | Every session |
 | `ROADMAP.md` | Goal tree: goals, sub-goals, tasks, horizons, priorities, statuses, decisions | Whenever work starts, finishes or is discovered |
 | `AGENTS.md` | This file: protocol and project facts for agents | The protocol or a project fact changes |
-| `docs/agent-memory-kit/` | Portable copy of this memory system for other repositories | The scripts, templates or protocol change; `tests/test_agent_memory_kit.py` catches drift |
-| `README.md` | User-facing overview, workflows, local run, latency numbers | A user-visible capability changes |
-| `ARCHITECTURE.md` | Boundaries, consistency model, AI safety design | A boundary or design decision changes |
-| `DEPLOYMENT.md` | Hosting, Postgres, Docker, bank and MCP operator setup | An operator-facing setting changes |
-| `MCP.md` | MCP server/client behaviour | MCP behaviour changes |
-| `AI_VALIDATION.md`, `END_TO_END_VALIDATION.md` | Dated evidence reports | Only with a new measured run; never edit numbers by hand |
+| `README.md` | <user-facing overview> | <a user-visible capability changes> |
 
 ## Engineering conventions that must hold
 
-- **Tenant boundary.** Every read and write derives the household from the session.
-  IDs and query parameters never grant access. New routes must follow this.
-- **Money is `Decimal`**, never float. Persisted JSON is versioned and allowlisted.
-  No pickle anywhere in application persistence.
-- **AI never executes.** Models can plan and explain; financial numbers come from the
-  engines, writes go through preview plus explicit confirmation. Do not add a path that
-  lets model output change records or wording of amounts without server verification.
-- **No invented evidence.** Validation documents report measured runs. If you change
-  behaviour that a report covers, either re-run and update the evidence file under
-  `validation/`, or state in `HANDOFF.md` that the report is now stale.
-- **Payment simulation** only exists in sample workspaces (`payment_sandbox=true`).
-  Real workspaces must keep rejecting simulation and settlement.
-- **Web assets** are fingerprinted at process start; restart the server after editing
-  anything under `finpilot/web/`.
-- **Line endings.** The repo is mixed LF/CRLF today. Do not reformat whole files just to
-  change endings; it hides real diffs.
-- **Secrets and local data.** Never commit a real provider credential, a `.env` file or anything under `.local/`.
+<!-- Replace the placeholder with the rules that protect this codebase, each with its reason. -->
+
+- <convention, and why it matters>
+- **No invented evidence.** Documents report measured results only. If you change
+  behaviour that a report covers, re-run it or state in `HANDOFF.md` that it is stale.
+- **Line endings.** Do not reformat whole files just to change line endings; it hides real diffs.
 
 ## Things not to do without asking the user
 

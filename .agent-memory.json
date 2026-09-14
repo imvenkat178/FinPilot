@@ -1,0 +1,3 @@
+{
+  "code_paths": ["finpilot/", "tests/", "scripts/", "alembic/", "conftest.py", "Dockerfile", "compose.yaml", "requirements.txt"]
+}

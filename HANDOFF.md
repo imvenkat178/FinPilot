@@ -2,7 +2,7 @@
 
 > Shared working memory for everyone (human or AI) who works on this repository.
 > The protocol for using this file is in [AGENTS.md](AGENTS.md).
-> Validate your edits with `.venv/Scripts/python.exe scripts/check_handoff.py --strict`.
+> Validate your edits with `python scripts/check_handoff.py --strict`.
 >
 > Sections 1 to 7 describe the **current** truth and are rewritten in place.
 > Section 8 is an **append-only** log, newest entry first.
@@ -10,22 +10,23 @@
 ## 1. Last step (read this first)
 
 - **When:** 2026-09-13
-- **Who:** Claude Sonnet 5 (Claude Code)
-- **What happened:** Committed the accumulated September 12 to 13 work (the reviewed AI workflow layer, conversations, documents, MCP, sample payment actions, and their validation evidence) together with the handoff system added earlier the same day. Commit `76f95b1` on `main`. Checked the staged `.env.example` diff and scanned the diff for secrets before committing; the one hit was a test fixture asserting credential-injection requests are rejected, not a real credential.
-- **State left behind:** Working tree is clean except `prototype/`, which was deliberately excluded because it carries its own nested `.git` (adding it with `git add -A` would create a broken gitlink, not real content). `main` is one commit ahead of `origin/main` and has not been pushed.
+- **Who:** Claude Opus 5 (Claude Code)
+- **What happened:** The user asked to implement the agent memory kit in this repository. The system was already installed here, so the session ran the kit's own install checklist against FinPilot and removed every difference from `docs/agent-memory-kit/templates/`. `AGENTS.md` now carries the kit's opening, protocol and "Things not to do" text word for word, while keeping FinPilot's facts, documentation map and conventions, plus a memory-scripts row, a code-paths row and a secrets convention. `ROADMAP.md` uses the kit's rules header with FinPilot's horizon meanings. `CLAUDE.md` is identical to the kit's. Memory commands now use `python`, which works because both scripts need only the standard library. `tests/test_agent_memory_kit.py` fails if the protocol text, roadmap rules or `CLAUDE.md` drift from the kit. No application code changed.
+- **State left behind:** Uncommitted, as listed in section 2. Nothing is committed or pushed.
 - **Resume by:**
-  1. `git status --short` — should show only `?? prototype/`.
-  2. Decide with the user whether/how to push `main`, and what to do with `prototype/` (import its files without the nested repo, add as a real git submodule, or leave it untracked).
-  3. Then pick from section 4.
+  1. `git status --short` and confirm it matches section 2.
+  2. `python scripts/roadmap.py next`.
+  3. Ask the user about committing this work and the short-term decisions in section 4, then start `G1.1`.
+  4. To change the protocol, edit the kit template first and copy it here; `tests/test_agent_memory_kit.py` enforces the match.
 
 ## 2. Repository state
 
 | Item | Current value |
 | --- | --- |
-| Branch | `main`, one commit ahead of `origin/main` (https://github.com/imvenkat178/FinPilot.git); not pushed |
-| Last commit | `76f95b1` (2026-09-13) "feat: reviewed AI workflow layer, documents, MCP, and shared agent handoff system" |
-| Uncommitted | Only `prototype/` (untracked, contains its own nested `.git`; excluded on purpose, see section 4) |
-| What the last commit contains | The reviewed AI workflow layer (80 typed capabilities, preview and confirm, receipts), saved conversations, document library with citations, MCP client and server, sample payment actions, their validation evidence, and the handoff system itself (`AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `scripts/check_handoff.py`, `tests/test_handoff.py`, `.github/PULL_REQUEST_TEMPLATE.md`). Described in `END_TO_END_VALIDATION.md` and `ARCHITECTURE.md` |
+| Branch | `main`, 2 commit(s) ahead of the last-fetched `origin/main` (https://github.com/imvenkat178/FinPilot.git); not pushed |
+| Last commit | `31424ba` (2026-09-13) "docs: record the commit outcome in HANDOFF.md"; the feature work itself is in `76f95b1` |
+| Uncommitted | New `ROADMAP.md`, `scripts/roadmap.py`, `tests/test_roadmap.py`, `tests/test_agent_memory_kit.py`, `docs/agent-memory-kit/`, `.agent-memory.json`, `conftest.py`; modified `AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `scripts/check_handoff.py`, `.github/PULL_REQUEST_TEMPLATE.md`; `prototype/` untracked (nested `.git`, see `G6.2`) |
+| What `76f95b1` contains | The reviewed AI workflow layer (80 typed capabilities, preview and confirm, receipts), saved conversations, document library with citations, MCP client and server, sample payment actions, their validation evidence, and the handoff system itself (`AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `scripts/check_handoff.py`, `tests/test_handoff.py`, `.github/PULL_REQUEST_TEMPLATE.md`). Described in `END_TO_END_VALIDATION.md` and `ARCHITECTURE.md` |
 | Toolchain verified here | Python 3.12.14 in `.venv/`, Node v24.19.0, Windows 11 |
 | Last full test run | 2026-09-13, before this commit: pytest 738 passed, 1 warning, 18 min 30 s (`validation/python-e2e.txt`); all seven frontend suites passed (`validation/frontend-e2e.txt`). Not re-run after the commit (no application code changed by the commit itself, only staging of already-written files) |
 | CI | None. There is no `.github/workflows/` and no pre-commit configuration |
@@ -45,31 +46,22 @@ Working and covered by tests unless noted. Details live in `README.md` ("Availab
 - **Sample payment simulation:** preflight, independent legs, idempotency, recovery, audit; restricted to sample workspaces.
 - **Deployment assets:** nonroot Dockerfile, `compose.yaml`, `DEPLOYMENT.md`. Docker image not built or run here.
 - **Evidence:** benchmark scripts and dated JSON/text evidence under `validation/`; Llama interpretation matrix 115/140 exact, 77/80 capabilities with an accepted interpretation.
+- **Agent coordination:** `AGENTS.md` protocol, `HANDOFF.md` validated by `scripts/check_handoff.py`, and `ROADMAP.md` validated and summarized by `scripts/roadmap.py`; both validators run inside pytest. A portable, tested copy for other repositories lives in `docs/agent-memory-kit/`.
 
-## 4. Next (prioritized backlog)
+## 4. Next (current focus)
 
-| Pri | Item | Why | Where to start |
-| --- | --- | --- | --- |
-| P0 | Push `main` to `origin` | Commit `76f95b1` exists only locally | `git push origin main`; ask the user first if this is a shared/protected branch |
-| P0 | Decide what to do with `prototype/` | It has its own nested `.git`, so it cannot be `git add -A`'d as-is; currently untracked and excluded from every commit | `git -C prototype log --oneline`; options are: copy files in without the nested repo, add as a real `git submodule`, or leave permanently untracked and add to `.gitignore` |
-| P1 | Close the 25/140 Llama interpretation gaps | All 25 are 12 s timeouts; `get_mortgage_scenarios`, `compare_card_vs_bank_for_bill`, `update_goal` have no accepted interpretation at all | `END_TO_END_VALIDATION.md` "Remaining interpretation limits"; `finpilot/ai/planner_context.py`, `finpilot/ai/workflows.py`; rerun `scripts/evaluate_workflows.py` |
-| P1 | Validate hosted deployment | Docker image, live PostgreSQL service, TLS, multi-process load have never been exercised | `DEPLOYMENT.md`; `scripts/verify_postgres.py` |
-| P1 | Add CI | Nothing runs the suites automatically; an 18 minute suite will drift | `.github/workflows/`; consider a fast tier (see section 5) |
-| P2 | Identity gaps | No email verification, password recovery, MFA, household invitations | `finpilot/api/app.py` auth routes; needs an email provider decision |
-| P2 | Bank linking beyond mocks | Scheduled sync, webhooks, institution update mode, cross-connection account merge are not implemented; live Plaid sandbox never used | `finpilot/services/bank_operations.py`, `ARCHITECTURE.md` "Bank connection" |
-| P2 | Document retrieval quality | Lexical only; no OCR, no embeddings | `finpilot/services/document_extract.py`, `finpilot/ai/knowledge.py` |
-| P2 | Scaling boundary | Aggregate snapshot decode/write grows with history; dashboard, model-health and AI admission caches are per process | `ARCHITECTURE.md` "Operations and current boundaries"; `finpilot/persistence/database.py` |
-| P3 | Faster feedback loop for tests | Full pytest is 18 to 19 min; frontend suites need a running server | pytest markers or a `-m fast` tier; a script that starts the server and runs the Node suites |
-| P3 | Line-ending hygiene | Git warns about LF/CRLF on several files | Add `.gitattributes`; do not mass-reformat |
+The complete goal tree lives in [ROADMAP.md](ROADMAP.md): goals, sub-goals and tasks with horizon, priority, status and dependencies. Run `python scripts/roadmap.py next` for actionable work and pending decisions. Every roadmap ID below must exist and still be open; `scripts/check_handoff.py` enforces this.
+
+Current focus, chosen by the last session:
+
+1. `G1.1` Privacy-safe request logging. A verified defect with a small fix.
+2. `G1.2` Correct client addresses behind a proxy. Reproduce behind a proxy first.
+3. `G5.2` Fast test tier, which unblocks `G5.1` continuous integration.
+4. Ask the user to decide `G6.1` (push), `G7.2` (production model host), `G2.1` (email provider) and `G6.2` (prototype directory).
 
 ## 5. Improvement areas (ideas, not commitments)
 
-- **Test tiers.** Mark the long AI and migration tests so a sub-minute tier can run on every change and the full suite nightly.
-- **One-command frontend verification.** A script that boots uvicorn on a free port, runs all `tests/*_frontend.mjs`, and shuts down.
-- **Planner latency.** The 25 remaining Llama failures are all timeouts, not misreadings. Options: smaller per-capability schemas, fewer few-shot tokens, a larger or quantization-faster model, or a GPU host. Measure before and after with `scripts/evaluate_workflows.py`.
-- **Evidence regeneration.** `scripts/report_*` produce the validation markdown; a single entry point would stop reports drifting from their JSON.
-- **Ledger split.** Move transaction history out of the mutable aggregate snapshot so large households stop paying decode cost on every write.
-- **Shared inference gateway.** Needed before running more than one application process against one local model.
+Moved into `ROADMAP.md` on 2026-09-13: test tiers (`G5.2`), one-command frontend verification (`G5.3`), planner latency (`G7.3`), evidence regeneration (`G5.7`), ledger split (`G10.1`) and shared inference admission (`G4.7`). Record new ideas in the "Ideas not yet goals" section of `ROADMAP.md`.
 
 ## 6. Known limits and risks (do not re-discover)
 
@@ -80,6 +72,13 @@ Working and covered by tests unless noted. Details live in `README.md` ("Availab
 - `.local/` holds earlier evaluation runs that are deliberately not merged into the current matrix. Do not cite them as current.
 - Web asset fingerprints are set at process start; a stale server serves stale JS.
 - The application does not load `.env` on native startup; set variables in the shell or use compose.
+- Request logging in the shipped image is not what `ARCHITECTURE.md` describes. Under the default uvicorn logging config (the `Dockerfile` CMD), `finpilot.requests` INFO lines are dropped, and the uvicorn access log prints full paths with query strings, for example `GET /api/transactions?q=therapy-copay&category=medical`. Amount-bearing reads such as `/api/debt/what-if?amount=` and `/api/tax/net-benefit?amount=` are logged the same way. Verified 2026-09-13 by running the app locally. Tracked as `G1.1`.
+- uvicorn 0.52.4 trusts `X-Forwarded-For` only from `127.0.0.1` unless `FORWARDED_ALLOW_IPS` is set. The IP-keyed throttles in `finpilot/api/auth_routes.py` (register 8 per 5 min, login 30 per 5 min) therefore key on the proxy address behind any proxy that is not on loopback. Tracked as `G1.2`.
+- There is no background worker. Bank sync, rule runs and payment simulation only happen on a user request. Nothing sends reminders or notifications, and there is no email capability. Tracked as `G9.1`, `G9.2` and `G2.1`.
+- Identity has no recovery or second factor: no password reset, email verification, MFA, password change or session management. Sessions last a fixed 12 hours. Tracked as `G2.2` to `G2.7`.
+- Users cannot delete their account or export their data in the app. The MCP read bridge offers read access, not a download. Tracked as `G2.4` and `G2.5`.
+- Totals skip accounts whose currency differs from the household base currency, and bank linking is US only. Tracked as `G10.3`.
+- In the Claude Code sandbox on this machine, pytest cannot create its default temp or cache directories. Add `-p no:cacheprovider --basetemp <writable dir>`; verified 2026-09-13 with `tests/test_roadmap.py`.
 
 ## 7. Decisions (do not re-litigate without a reason)
 
@@ -91,6 +90,10 @@ Working and covered by tests unless noted. Details live in `README.md` ("Availab
 | 2026-09-13 | `prototype/` is excluded from commits (nested `.git`, not a submodule) until someone decides how to bring it in | `git add -A` would otherwise write a broken gitlink pointing at an untracked repo |
 | 2026-09-11 | Per-operation household snapshot and SQLAlchemy session; no cross-request caching of financial answers except by household revision | Correctness under concurrency; see `ARCHITECTURE.md` |
 | 2026-09-12 | Model output never executes; every write goes through preview and explicit confirmation | Financial safety; see `ARCHITECTURE.md` "Reviewed AI workflows" |
+| 2026-09-13 | Long-term goals live in `ROADMAP.md` as goal, sub-goal and task IDs with horizon, priority, status and dependencies; `scripts/roadmap.py write` generates its summary; section 4 here lists only the current focus by ID | One goal tree that every agent reads; generated rollups cannot drift; the handoff stays short |
+| 2026-09-13 | Suggestions from the production-readiness list the user supplied were merged into `ROADMAP.md`; ones FinPilot already had are marked done, and seven that conflict with existing design are under "Considered and not adopted" | Keeps revocable server sessions, verified-only answers and revision-keyed caching unless the user decides otherwise |
+| 2026-09-13 | The memory system ships as a portable kit in `docs/agent-memory-kit/`; its script, test and PR-template copies must stay identical to this repository's, enforced by `tests/test_agent_memory_kit.py`, and repository-specific settings live in `.agent-memory.json` | Other repositories get exactly the tested system, and FinPilot cannot drift from it |
+| 2026-09-13 | FinPilot is the reference installation of the agent memory kit: the `AGENTS.md` protocol text, the `ROADMAP.md` rules header and `CLAUDE.md` must match the kit templates exactly, enforced by `tests/test_agent_memory_kit.py` | The same exact instructions run here and in every repository that installs the kit |
 
 ## 8. Session log (append newest first)
 
@@ -104,6 +107,34 @@ Template. Copy it and keep the heading format exactly: date | agent | one-line t
 - **Not done / left broken:** anything incomplete, failing, or skipped, and why.
 - **Next agent should:** the first concrete thing to do.
 -->
+
+### 2026-09-13 | Claude Opus 5 (Claude Code) | Installed the agent memory kit here word for word
+- **Goal:** Implement the agent memory kit in this repository exactly as it is meant to be installed elsewhere.
+- **Changed:** Aligned `AGENTS.md`, the `ROADMAP.md` rules header and intro command, `CLAUDE.md` and this file's commands with the kit templates. Extended `tests/test_agent_memory_kit.py` with protocol, roadmap-rules and `CLAUDE.md` checks. No application code.
+- **Verified:** Compared each live file with its template first: the differences were wording and interpreter paths, while the scripts, their tests and the PR template were already identical. `python --version` reports Python 3.12.10 on PATH. After aligning, `python scripts/roadmap.py check` and `python scripts/check_handoff.py --strict` pass, the three memory test files gave 16 passed with `-p no:cacheprovider --basetemp <scratchpad>`, and full collection is 754 tests. Full suite not run because no application code changed.
+- **Not done / left broken:** Nothing committed or pushed. Running the validators in continuous integration is still open as `G5.1`.
+- **Next agent should:** Ask the user about committing this work, then start `G1.1`.
+
+### 2026-09-13 | Claude Opus 5 (Claude Code) | Portable agent memory kit for other repositories
+- **Goal:** Explain how the shared memory is designed and make it reusable, unchanged, in other repositories.
+- **Changed:** Added `docs/agent-memory-kit/` (guide and templates), `.agent-memory.json`, root `conftest.py` and `tests/test_agent_memory_kit.py`. Updated `scripts/check_handoff.py` (config-driven code paths, cache paths ignored, no bytecode when loading the roadmap tool) and `AGENTS.md` (accurate tool list, kit in the documentation map). No application code.
+- **Verified:** Installed the templates into a fresh git repository in the scratchpad. The strict check passed on a clean install, pytest there gave 12 passed, the strict check still passed with only `__pycache__` folders untracked, changing `src/app.py` without touching `HANDOFF.md` failed with exactly one problem, and updating `HANDOFF.md` made it pass. An earlier run of the same scenario counted `scripts/__pycache__` as code, which led to the cache fix. In FinPilot, `check_handoff.py --strict` passes, the three memory test files gave 14 passed with `-p no:cacheprovider --basetemp <scratchpad>`, and full collection is 752 tests with `docs/` excluded. Full suite not run because no application code changed.
+- **Not done / left broken:** Nothing committed. The kit has not yet been installed in a real second repository.
+- **Next agent should:** Ask the user about committing this work, then start `G1.1`.
+
+### 2026-09-13 | Claude Opus 5 (Claude Code) | Roadmap with long-term goals, sub-goals and tasks
+- **Goal:** Add long-term goals with sub-goals and tasks, classified into short-term, mid-term and long-term, covering the earlier gap review and the production-readiness list the user pasted.
+- **Changed:** Added `ROADMAP.md`, `scripts/roadmap.py` and `tests/test_roadmap.py`. Updated `scripts/check_handoff.py` so it validates the roadmap and the roadmap IDs in this file, plus `AGENTS.md`, `CLAUDE.md`, `.github/PULL_REQUEST_TEMPLATE.md` and sections 1 to 8 here. No application code.
+- **Verified:** Checked the pasted suggestions against the code before classifying them: Fernet credential encryption exists; input safety rejects credentials but masks no account numbers or SSNs; LangSmith tracing is opt-in without redaction; audit rows are insert-only in code but not enforced by the database; CSV import detects duplicates and defaults categories to `uncategorized`; `engine/recurring.py` tracks rule occurrences, not subscriptions; document extraction runs inside the upload request; `engine/ledger.py` is a forecast ledger, not double-entry; no pytest markers exist. `scripts/roadmap.py check` passes. `pytest tests/test_roadmap.py tests/test_handoff.py -p no:cacheprovider --basetemp <scratchpad>` gave 12 passed; without `--basetemp`, two tests errored on a sandbox `PermissionError`. A copy of this file with a closed ID and an unknown ID in section 4 failed validation as intended. Full suite not run because no application code changed.
+- **Not done / left broken:** Nothing committed. Thirteen roadmap sub-goals wait on user decisions. Horizons and priorities are proposals for the user to adjust.
+- **Next agent should:** Ask the user about committing this work and the short-term decisions, then start `G1.1`.
+
+### 2026-09-13 | Claude Opus 5 (Claude Code) | Product-readiness gap review
+- **Goal:** Answer what is missing to make FinPilot a complete, launchable product.
+- **Changed:** `HANDOFF.md` only: sections 1, 2, 4 and 6 plus this entry. No application code.
+- **Verified:** Read the auth service, app middleware, all routes, the Plaid adapter, domain models, `Dockerfile`, `compose.yaml` and `DEPLOYMENT.md`. Searched for schedulers, email, MFA, account deletion, export, metrics, error tracking, billing, legal text, budgets, OCR, admin views and PWA assets; none exist. Ran the app with uvicorn 0.52.4 defaults on port 8765 against a scratchpad SQLite database: `/api/health` returned 200, zero `finpilot.requests` lines were printed, and the access log printed `GET /api/transactions?q=therapy-copay&category=medical`. Read `uvicorn.config.Config.__init__`: `FORWARDED_ALLOW_IPS` defaults to `127.0.0.1`. Test suite not run because no code changed.
+- **Not done / left broken:** No fixes applied, since the user asked a question. The proxy finding comes from uvicorn defaults plus missing configuration, not from a run behind a real proxy. Notes about privacy law are general, not legal advice.
+- **Next agent should:** Confirm priorities with the user, then fix request logging and forwarded-IP trust first.
 
 ### 2026-09-13 | Claude Sonnet 5 (Claude Code) | Committed the accumulated work and the handoff system
 - **Goal:** Commit the repository's pending work at the user's request ("commit").

@@ -85,7 +85,7 @@ def test_projection_reads_only_changed_transactions_and_keeps_reversals_atomic(h
         changed_id = changed.id
         # A canonical deletion must remove the SQL projection in the same commit.
         ctx.household.transactions = [changed]
-    rows = client.get("/api/transactions").json()
+    rows = client.post("/api/transactions/search", json={}).json()
     assert rows["total"] == 1
     assert rows["transactions"][0]["id"] == changed_id
     assert rows["transactions"][0]["state"] == "reversed"

@@ -35,11 +35,18 @@ def hosted(tmp_path):
         yield client, app.state.runtime, url
 
 
-@pytest.mark.parametrize('path',['/api/bootstrap','/api/workspace','/api/dashboard','/api/transactions',
+@pytest.mark.parametrize('path',['/api/bootstrap','/api/workspace','/api/dashboard',
     '/api/audit','/api/ask/history','/api/execution/groups'])
 def test_anonymous_cannot_read_finances(hosted,path):
     client,_,_=hosted
     assert client.get(path).status_code == 401
+
+
+@pytest.mark.parametrize('path',['/api/transactions/search','/api/documents/search','/api/debt/compare','/api/debt/what-if',
+    '/api/mortgage/scenarios','/api/mortgage/biweekly','/api/cards/utilization','/api/tax/net-benefit'])
+def test_anonymous_cannot_run_body_reads(hosted,path):
+    client,_,_=hosted
+    assert client.post(path,json={}).status_code == 401
 
 
 def test_password_and_session_are_hashed_and_logout_revokes(hosted):
@@ -140,18 +147,18 @@ def test_csv_is_atomic_idempotent_paginated_and_tenant_scoped(hosted):
     payload={'account_id':'acc_checking','csv':csv,'mapping':{'date':'Date','description':'Description','amount':'Amount'}}
     before=client.get('/api/workspace').json()['accounts']
     assert client.post('/api/transactions/preview',json=payload).json()['new_count']==2
-    assert client.get('/api/transactions').json()['total']==0
+    assert client.post('/api/transactions/search',json={}).json()['total']==0
     assert client.post('/api/transactions/import',json=payload).json()['imported']==2
     assert client.post('/api/transactions/import',json=payload).json()['duplicates']==2
-    result=client.get('/api/transactions?limit=1').json()
+    result=client.post('/api/transactions/search',json={'limit':1}).json()
     assert result['total']==2 and len(result['transactions'])==1
-    assert client.get('/api/transactions?q=Coffee').json()['total']==1
+    assert client.post('/api/transactions/search',json={'q':'Coffee'}).json()['total']==1
     malformed={**payload,'csv':'Date,Description,Amount\n2026-09-07,Good,-10\ninvalid,Bad,50'}
     assert client.post('/api/transactions/import',json=malformed).status_code==422
-    assert client.get('/api/transactions').json()['total']==2
+    assert client.post('/api/transactions/search',json={}).json()['total']==2
     assert client.get('/api/workspace').json()['accounts']==before
     other=TestClient(client.app);register(other,'second@example.com')
-    assert other.get('/api/transactions').json()['total']==0
+    assert other.post('/api/transactions/search',json={}).json()['total']==0
     other.close()
 
 

@@ -60,7 +60,7 @@ Tests: `test_section4_illustrative_paycheck`, `test_section4_shortfall_is_named_
 
 ## Debt payoff comparison
 
-Engine: `DebtSimulator` in `finpilot/engine/debt.py`. API: `GET /api/debt/compare` and `GET /api/debt/what-if`.
+Engine: `DebtSimulator` in `finpilot/engine/debt.py`. API: `POST /api/debt/compare` and `POST /api/debt/what-if`. Only debts with a known rate and required payment are simulated; a linked debt whose bank did not report them is listed under `missing_terms` and still counts in debt totals.
 
 Each simulated month, for up to 720 months:
 
@@ -89,7 +89,7 @@ Tests: `test_section8_budget_split`, `test_section8_each_strategy`, `test_sectio
 
 ## Mortgage scenarios
 
-Engine: `mortgage_scenarios` and `biweekly_comparison` in `finpilot/engine/debt.py`. API: `GET /api/mortgage/scenarios` and `GET /api/mortgage/biweekly`.
+Engine: `mortgage_scenarios` and `biweekly_comparison` in `finpilot/engine/debt.py`. API: `POST /api/mortgage/scenarios` and `POST /api/mortgage/biweekly`. A linked mortgage is modelled once principal and interest and escrow are entered separately.
 
 - **Amortized payment:** P × i(1 + i)^n ÷ ((1 + i)^n - 1), with i = APR ÷ 12. With a zero rate, P ÷ n.
 - **Run-off:** monthly interest at APR ÷ 12 rounded to cents; each payment is capped at the balance.
@@ -101,7 +101,7 @@ Escrow, taxes and insurance are excluded. Test: `test_section18_promo_reserve`.
 
 ## Card selection
 
-Engine: `rank_cards` in `finpilot/engine/cards.py`. API: `POST /api/cards/choose` and `GET /api/cards/utilization`.
+Engine: `rank_cards` in `finpilot/engine/cards.py`. API: `POST /api/cards/choose` and `POST /api/cards/utilization`.
 
 For each card:
 
@@ -163,7 +163,7 @@ Tests: `test_section16_apy_growth_ten_days`, `test_section16_after_tax`, `test_s
 
 ## Savings versus debt
 
-Engine: `compare_savings_vs_debt` in `finpilot/engine/tax.py`. API: `GET /api/tax/net-benefit`, 365 days by default.
+Engine: `compare_savings_vs_debt` in `finpilot/engine/tax.py`. API: `POST /api/tax/net-benefit`, 365 days by default.
 
 - **Tax rate on interest:** federal marginal + state marginal + net investment income tax when it applies. Treasury interest skips the state rate. The default profile is 24% federal and 5% state, not itemizing and not verified.
 - **Baseline:** gross interest = amount × APY × days ÷ 365; net interest = gross × (1 - tax rate).
@@ -203,3 +203,25 @@ Tests: `test_section19_coverage_example`, `test_ncua_trust_rule_changes_on_1_dec
 Engine: `finpilot/engine/recurring.py`. API: `GET /api/recurring/activity`, 60 days by default.
 
 For each recurring rule, the engine lists the dated runs inside the horizon and whether each will run or is stopped by a pause, a one-time skip or missing authorization. It shows the consequence before the date arrives rather than after a run fails.
+
+## Evidence confidence
+
+Assistant answers carry an evidence confidence level from `evidence_confidence` in `finpilot/ai/evidence.py`. Refusals, unrelated requests, saved notes and unrecognized requests get none.
+
+An answer starts at 100 and loses points once for each condition that applies. A calculation error sets the score to 20 instead.
+
+| Condition | Points |
+| --- | --- |
+| The answer quotes document excerpts rather than account data | -30 |
+| The answer repeats earlier conversation text | -40 |
+| The calculation reports `bounded` or `approximate` confidence | -15 |
+| The calculation reports `directional` confidence | -30 |
+| The calculation reports `insufficient` confidence | -50 |
+| Inputs still need confirming | -15 |
+| A linked account is stale or its connection needs attention | -25 |
+| A linked account holds estimated values | -15 |
+| A linked account balance has no reported effective time | -5 |
+| A linked debt lacks its rate or required payment | -10 |
+| The answer depends on stated assumptions | -5 |
+
+Scores of 85 or more are `high`, 60 to 84 `medium` and below 60 `low`. Linked accounts are the accounts of every record the answer links.

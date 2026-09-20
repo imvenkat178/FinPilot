@@ -259,17 +259,26 @@ def plan_with_model(q,ctx,r,viewing,pending,external,timeout):
         "viewing":viewing,"date":ctx.household.as_of.isoformat(),
         "rate_conversions":rate_facts(q),"pending":pending,"request":q,
         **({"tasks":task_descriptions} if task_descriptions else {})},separators=(",",":"))
-    raw=r.llm.complete(system,content,temperature=0,timeout=timeout,
-        response_format={"type":"json_schema","json_schema":{"name":"finpilot_plan","strict":True,"schema":schema}})
+    cache=getattr(r,"wording_cache",None)
+    model=getattr(getattr(r.llm,"config",None),"model","")
+    key=cache.key(ctx.household.id,"plan",model=model,system=system,content=content,schema=schema) if cache is not None else None
+    raw=cache.get(key) if cache is not None else None
+    cached=raw is not None
+    if not cached:
+        raw=r.llm.complete(system,content,temperature=0,timeout=timeout,
+            response_format={"type":"json_schema","json_schema":{"name":"finpilot_plan","strict":True,"schema":schema}})
     plan=json.loads(raw)
     Draft202012Validator(schema).validate(plan)
+    if cache is not None and not cached:
+        # A plan for this exact prompt is reused; server validation still runs on every use.
+        cache.put(key,raw)
     if task_descriptions:
         plan["operations"]=[plan["operations"][task["slot"]] for task in task_descriptions]
     for op in plan["operations"]:
         actual=caps[op["capability"]].schema["properties"]
         op["arguments"]={key:value for key,value in op["arguments"].items()
             if value is not None or "null" in ([actual[key].get("type")] if isinstance(actual[key].get("type"),str) else actual[key].get("type",[]))}
-    return {"operations":plan["operations"],"question":plan["clarification"]}
+    return {"operations":plan["operations"],"question":plan["clarification"],"cached":cached}
 
 def run_workflow(q,ctx,r,p,request,viewing,document_ids,conversation_id,generation_id,
                  *, force_model=False,remaining=None,input_operations=None):
@@ -309,6 +318,7 @@ def run_workflow(q,ctx,r,p,request,viewing,document_ids,conversation_id,generati
             plan=plan_with_model(q,ctx,r,viewing,pending,external,
                 max(0,deadline-time.monotonic()))
             planner["schema_valid"]=True
+            planner["cache"]="hit" if plan.pop("cached",False) else ("miss" if getattr(r,"wording_cache",None) is not None else "off")
         except Exception as exc:
             planner.update(accepted=False,reason=type(exc).__name__)
             return response("I could not reliably interpret that request within the model budget. No changes were made. Choose a workflow or add the missing details.",

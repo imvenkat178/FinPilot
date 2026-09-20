@@ -40,7 +40,7 @@ def test_upload_retrieve_citations_and_delete_cascades():
         document = response.json()["document"]
         assert document["status"] == "ready" and document["source_type"] == "upload"
         assert client.get("/api/documents").json()["documents"][0]["id"] == document["id"]
-        sources = client.get("/api/documents/search", params={"q": "emergency withdrawal waiting", "document_id": document["id"]}).json()["sources"]
+        sources = client.post("/api/documents/search", json={"q": "emergency withdrawal waiting", "document_id": [document["id"]]}).json()["sources"]
         assert len(sources) == 1
         assert sources[0]["id"] == document["id"] and sources[0]["page"] == 1
         assert "14 business days" in sources[0]["text"] and sources[0]["score"] > 0
@@ -49,7 +49,7 @@ def test_upload_retrieve_citations_and_delete_cascades():
         assert client.runtime.read(client.principal).revision == initial_revision
         assert client.delete("/api/documents/" + document["id"]).json() == {"deleted": True}
         assert client.get("/api/documents/" + document["id"]).status_code == 404
-        assert client.get("/api/documents/search", params={"q": "emergency"}).json() == {"sources": []}
+        assert client.post("/api/documents/search", json={"q": "emergency"}).json() == {"sources": []}
         with client.runtime.db.sessions() as session:
             for table in (DocumentRow, DocumentChunkRow, DocumentTermRow):
                 assert session.scalar(select(func.count()).select_from(table)) == 0

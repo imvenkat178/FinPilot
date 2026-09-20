@@ -1,0 +1,67 @@
+{
+  "checked_at": "2026-09-15T01:54:22+00:00",
+  "environment": "sandbox",
+  "institution": "ins_109508",
+  "steps": {
+    "register": 201,
+    "link_token": 200,
+    "sandbox_item": "created",
+    "exchange": 200,
+    "sync": [
+      200,
+      200
+    ],
+    "disconnect": 200
+  },
+  "accounts_by_type": {
+    "auto_loan": 1,
+    "checking": 1,
+    "credit_card": 2,
+    "money_market_deposit": 1,
+    "mortgage": 1,
+    "savings": 1,
+    "student_loan": 1
+  },
+  "liabilities": [
+    {
+      "type": "auto_loan",
+      "terms_complete": false
+    },
+    {
+      "type": "credit_card",
+      "terms_complete": false
+    },
+    {
+      "type": "credit_card",
+      "terms_complete": true
+    },
+    {
+      "type": "mortgage",
+      "terms_complete": false
+    },
+    {
+      "type": "student_loan",
+      "terms_complete": true
+    }
+  ],
+  "cards": 1,
+  "transactions": 15,
+  "categories": {
+    "transportation": 3,
+    "dining": 3,
+    "debt_payment": 2,
+    "transfer": 2,
+    "travel": 2,
+    "personal_care": 1,
+    "shopping": 1,
+    "utilities": 1
+  },
+  "notices": [
+    "Only checking, savings, money-market, credit card, auto loan, personal loan, mortgage and student loan accounts are supported.",
+    "Enter the interest rate and required payment for Plaid Auto Loan, Plaid Business Credit Card to include them in payoff plans.",
+    "Your servicer reports one monthly payment that can include escrow. Enter principal and interest and escrow separately for Plaid Mortgage to include them in payoff and mortgage plans.",
+    "Utilization timing and card choices need a credit limit, statement date, due date and purchase APR for Plaid Business Credit Card."
+  ],
+  "provider_errors": [],
+  "passed": true
+}

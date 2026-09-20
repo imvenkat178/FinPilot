@@ -65,6 +65,10 @@ You can also upload a CSV inside a chat conversation; the assistant shows the ex
 2. Ask a question, such as "How much can I spend this week?" or "Which card should I use for an $80 dinner?"
 3. Answers use FinPilot's calculations. When no AI model is available, you still get calculator answers.
 
+**Every figure comes from FinPilot's calculations.** When an AI model words an answer, it writes placeholders that FinPilot fills with the exact figures. If the wording adds a number, investment or product advice, or a claim that something was done, you get FinPilot's calculator wording instead. Requests unrelated to your finances get a short reply that says what FinPilot can help with.
+
+**See where an answer comes from.** Under an answer, **Record sources** links to the accounts, bills, cards, debts, goals, rules and transactions behind it; choose one to open it. The confidence label, such as **High confidence**, summarizes how complete and current that evidence is. Open **View sources and assumptions** to see the reasons and which calculation field each figure came from.
+
 **Conversations** lists your saved conversations so you can resume or delete one, and **New conversation** starts a fresh one. Conversations are stored in your account, not in your browser.
 
 **Changes need your approval.** When you ask for a change, such as updating a bill, the assistant prepares a review card showing exactly what will change. Choose **Confirm** to apply it, **Edit** to adjust it or **Cancel** to discard it. Nothing changes until you confirm. A review expires after 15 minutes, and one request can include up to four changes. Confirmed changes leave a receipt in the conversation.
@@ -88,7 +92,7 @@ Documents inform answers but never change your financial records. Deleting a doc
 
 ## Link a bank
 
-When your operator has configured bank linking, **Connected banks** lets you link supported US checking, savings and money-market accounts. Sync imports new transactions and balance snapshots; balances are cached, not realtime. Disconnecting removes the stored bank authorization and keeps the records already imported. Sample workspaces cannot link banks.
+When your operator has configured bank linking, **Connected banks** lets you link supported US checking, savings, money-market, credit card, auto loan, personal loan, mortgage and student loan accounts. Sync imports balance snapshots, transactions sorted into FinPilot categories, and card and loan terms when your bank shares them. Balances are cached, not realtime. A debt without a reported interest rate or required payment still counts in your totals; enter its terms on the account to include it in payoff plans. For a linked mortgage, enter principal and interest and escrow separately. Accounts that sync from your bank do not accept CSV imports, so transactions are not counted twice. Disconnecting removes the stored bank authorization and keeps the records already imported. Sample workspaces cannot link banks.
 
 ## Simulate payments in a sample workspace
 

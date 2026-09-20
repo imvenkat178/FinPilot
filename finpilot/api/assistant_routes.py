@@ -9,8 +9,9 @@ from ..ai.graph import FinanceAgent, ToolChoice
 from ..ai.tools import ToolRegistry
 from ..ai.router import route
 from ..ai.llm import start_inference_metrics, inference_metrics, stop_inference_metrics
-from ..ai.guardrails import scope_check
-from ..ai.knowledge import resolve_followup, memory_context, document_question, memory_question, source_answer
+from ..ai.guardrails import OUT_OF_DOMAIN_ANSWER, in_domain, scope_check
+from ..ai.evidence import attach_evidence
+from ..ai.knowledge import FOLLOWUP, resolve_followup, memory_context, document_question, memory_question, source_answer
 from ..services.conversations import ConversationService
 from ..services.documents import DocumentService
 from ..persistence.database import ChatRow
@@ -89,11 +90,22 @@ def ask(body: AskIn, request: Request, p: P, r: R):
         pure_source = is_document and not mutating_request(body.question) and not re.search(r"\b(and|compare|versus|against)\b", body.question, re.I)
         pure_memory = memory_question(body.question) or bool(re.match(r"^remember\b", body.question, re.I))
         workflow = None
-        if body.workflow_input or body.workflow_mode == "model" or not (pure_source or pure_memory):
+        # A deterministic topic gate: unrelated prompts never reach the planner or a model.
+        out_of_domain = not (body.workflow_input or body.workflow_mode == "model" or document_ids or override
+                             or body.untrusted_context
+                             or pure_memory or scope_check(body.question) or in_domain(body.question)
+                             or (memory and FOLLOWUP.search(body.question.strip())))
+        if not out_of_domain and (body.workflow_input or body.workflow_mode == "model" or not (pure_source or pure_memory)):
             workflow = run_workflow(body.question, ctx, r, p, request, viewing, document_ids,
                 conversation_id, generation_id, force_model=body.workflow_mode == "model",
                 input_operations=[x.model_dump() for x in body.workflow_input] if body.workflow_input else None)
-        if workflow is not None:
+        if out_of_domain:
+            result = {"question": body.question, "answer": OUT_OF_DOMAIN_ANSWER, "state": "informational",
+                      "intent": "out_of_domain", "tools_called": [], "used_model": False,
+                      "grounding": {"ok": True, "method": "domain_gate"}, "guard": {"domain": "out_of_domain"},
+                      "assumptions": [], "confidence": "", "latency_ms": 0,
+                      "trace": [{"node": "domain_gate", "result": "outside FinPilot's scope"}], "evidence": []}
+        elif workflow is not None:
             result = {"question": body.question, **workflow}
         elif re.match(r"^remember(?:\s+that\b|\s*[:,])", body.question, re.I) and not scope_check(body.question):
             result = {'question':body.question, 'answer':"I will keep this in the current conversation. You can return to it from Conversations.",
@@ -120,7 +132,8 @@ def ask(body: AskIn, request: Request, p: P, r: R):
             # Persist the language intent before that happens, not a stale account scope.
             remembered_route = {**resolved.to_json(), 'arguments': dict(resolved.arguments)}
             result = FinanceAgent(tools, r.llm, compile_graph=False, default_account_id=account_id,
-                conversation_context=memory_context(memory), route_override=override
+                conversation_context=memory_context(memory), route_override=override,
+                wording_cache=getattr(r, "wording_cache", None), cache_scope=p.household_id
             ).ask(body.question, context, body.tool_choice).to_json()
             # Preserve only authorized read intent/arguments for later follow-up resolution.
             spec = tools.spec(resolved.tool)
@@ -129,6 +142,7 @@ def ask(body: AskIn, request: Request, p: P, r: R):
             if override:
                 result['resolved_question'] = f"Follow-up to: {memory[-1]['question']}"
         result['document_sources'] = result.get('document_sources', [])
+        attach_evidence(result, ctx.household)
         result['conversation_id'] = conversation_id
         result['answer_id'] = generation_id
         result['memory_turns'] = len(memory)

@@ -10,6 +10,7 @@ import pytest
 
 import finpilot.ai.graph as graph_module
 import finpilot.ai.llm as llm_module
+from finpilot.ai.facts import tokenize
 from finpilot.ai.graph import FinanceAgent, ToolChoice
 from finpilot.ai.llm import LLMConfig, LLMUnavailable, LocalLLM
 from finpilot.ai.router import route, template_answer
@@ -245,7 +246,7 @@ def test_model_tool_budget_limits_tools_within_one_response(monkeypatch):
     chat = Mock(return_value={"choices": [{"message": {"role": "assistant", "tool_calls": calls}}]})
     monkeypatch.setattr(llm, "chat", chat)
     expected = template_answer("money_overview", registry.call("get_money_overview"))
-    monkeypatch.setattr(llm, "complete", Mock(return_value=expected))
+    monkeypatch.setattr(llm, "complete", Mock(return_value=tokenize(expected).tokenized))
     agent = FinanceAgent(registry, llm, max_tool_calls=3, compile_graph=False)
     result = agent.ask("How much money do I have?", tool_choice=ToolChoice.MODEL)
     chat.assert_called_once()

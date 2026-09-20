@@ -262,6 +262,38 @@ export async function ask(question, workflowInput = null) {
   }
 }
 
+const EVIDENCE_KIND = {account: "ACCOUNT", transaction: "TRANSACTION", bill: "BILL", card: "CARD",
+  liability: "LOAN OR CARD", policy: "RULE", reserve: "GOAL", income: "INCOME"};
+function evidenceLinkHTML(ref) {
+  const label = `<span>${icon("receipt")}<span><small>${esc(EVIDENCE_KIND[ref.kind] || "RECORD")}</small>${esc(ref.label)}</span></span>${icon("arrow")}`;
+  if (ref.kind === "transaction") {
+    const loaded = (S.workspace?.transactions || []).some(t => t.id === ref.id);
+    const target = loaded ? `transaction:${ref.id}` : `history:${ref.account_id || ""}`;
+    return `<button class="response-source" data-manage="${esc(target)}">${label}</button>`;
+  }
+  const detail = {bill: "bill", reserve: "reserve", policy: "rule"}[ref.kind];
+  if (detail) return `<button class="response-source" data-detail="${detail}:${esc(ref.id)}">${label}</button>`;
+  if (ref.kind === "income") return `<a class="response-source" href="#paychecks">${label}</a>`;
+  const account = ref.kind === "account" ? ref.id : ref.account_id;
+  return account ? `<a class="response-source" href="#accounts/${esc(account)}">${label}</a>` : "";
+}
+function evidenceLinksHTML(d) {
+  const refs = Array.isArray(d.record_refs) ? d.record_refs.slice(0, 8) : [];
+  return refs.length ? `<div class="answer-document-sources answer-evidence"><span class="suggestion-label">RECORD SOURCES</span>${refs.map(evidenceLinkHTML).join("")}</div>` : "";
+}
+function confidenceReasonsHTML(d) {
+  const reasons = Array.isArray(d.evidence_confidence?.reasons) ? d.evidence_confidence.reasons : [];
+  return reasons.length ? `<span class="suggestion-label">WHY ${esc(String(d.evidence_confidence.level).toUpperCase())} CONFIDENCE</span><ul>${reasons.map(reason => `<li>${esc(reason)}</li>`).join("")}</ul>` : "";
+}
+const figureSourceLabel = path => {
+  const [tool, ...field] = String(path).split(".");
+  return `${human(tool.replace(/^get_/, ""))}: ${field.join(".").replaceAll("_", " ") || "value"}`;
+};
+function figureSourcesHTML(d) {
+  const figures = Array.isArray(d.figures) ? d.figures.filter(f => Array.isArray(f.sources) && f.sources.length) : [];
+  return figures.length ? `<span class="suggestion-label">WHERE EACH FIGURE COMES FROM</span><ul>${figures.slice(0, 12).map(f => `<li><strong>${esc(f.text)}</strong> · ${esc(f.sources.map(figureSourceLabel).join(", "))}</li>`).join("")}</ul>` : "";
+}
+
 function responseHTML(d, scope) {
     const trace = Array.isArray(d.trace) ? d.trace : [];
     const modelComposed = trace.some(step => step.node === "compose" && step.mode === "model");
@@ -300,7 +332,7 @@ function responseHTML(d, scope) {
         : [];
     const sourceName =
       sections.find((s) => s[0] === path)?.[1] || "Financial details";
-    return `<div class="copilot-response"><div class="response-author"><span class="assistant-symbol">${icon("spark")}</span><span>FinPilot<span class="response-ai-label">${d.workflow ? "ACTION" : d.used_model ? "AI" : documentAnswer ? "SOURCE" : memoryAnswer ? "MEMORY" : "CALC"}</span></span></div><p class="answer-text">${esc(d.answer || "No answer was returned. Please try a more specific question.")}</p>${workflowPartsHTML(d)}<div class="answer-status"><span>${esc(responseStatus)}</span>${d.confidence ? `<span>${esc(human(d.confidence))} confidence</span>` : ""}${d.state && d.state !== "informational" && !(d.workflow && d.state === "drafted") ? `<span>${esc(human(d.state))}</span>` : ""}</div>${d.memory_turns ? `<div class="answer-memory">${icon("repeat")}Used ${esc(d.memory_turns)} recent conversation turn${d.memory_turns === 1 ? "" : "s"}</div>` : ""}${documentSources.length ? `<div class="answer-document-sources"><span class="suggestion-label">DOCUMENT SOURCES</span>${documentSources.map((source, i) => `<button class="response-source" data-action="knowledge-view" data-id="${esc(source.id)}" data-chunk="${esc(source.chunk_id)}"><span>${icon("receipt")}<span><small>SOURCE [${esc(source.citation || i + 1)}] · PAGE ${esc(source.page || 1)}</small>${esc(source.title)}</span></span>${icon("arrow")}</button>`).join("")}</div>` : ""}${!documentAnswer && !memoryAnswer && tools.length ? `<a class="response-source" href="#${esc(path)}"><span>${icon("receipt")}<span><small>EXPLORE THE SOURCE</small>${esc(sourceName)}</span></span>${icon("arrow")}</a>` : ""}<details class="evidence"><summary>View sources and assumptions</summary><div class="response-provenance"><p>Asked while viewing <strong>${esc(scope.name)}</strong>.</p>${tools.length ? `<span class="suggestion-label">CALCULATIONS USED</span><ul>${tools.map((name) => `<li>${esc(human(name.replace(/^(get|check)_/, "")))}</li>`).join("")}</ul>` : ""}${assumptions.length ? `<span class="suggestion-label">ASSUMPTIONS & NOTES</span><ul>${assumptions.map((note) => `<li>${esc(note)}</li>`).join("")}</ul>` : ""}</div><details class="evidence"><summary>View full response data</summary><pre>${esc(JSON.stringify(d.evidence ?? {}, null, 2))}</pre></details></details></div>`;
+    return `<div class="copilot-response"><div class="response-author"><span class="assistant-symbol">${icon("spark")}</span><span>FinPilot<span class="response-ai-label">${d.workflow ? "ACTION" : d.used_model ? "AI" : documentAnswer ? "SOURCE" : memoryAnswer ? "MEMORY" : "CALC"}</span></span></div><p class="answer-text">${esc(d.answer || "No answer was returned. Please try a more specific question.")}</p>${workflowPartsHTML(d)}<div class="answer-status"><span>${esc(responseStatus)}</span>${d.evidence_confidence ? `<span class="answer-confidence" data-level="${esc(d.evidence_confidence.level)}">${esc(human(d.evidence_confidence.level))} confidence</span>` : d.confidence ? `<span>${esc(human(d.confidence))} confidence</span>` : ""}${d.state && d.state !== "informational" && !(d.workflow && d.state === "drafted") ? `<span>${esc(human(d.state))}</span>` : ""}</div>${d.memory_turns ? `<div class="answer-memory">${icon("repeat")}Used ${esc(d.memory_turns)} recent conversation turn${d.memory_turns === 1 ? "" : "s"}</div>` : ""}${documentSources.length ? `<div class="answer-document-sources"><span class="suggestion-label">DOCUMENT SOURCES</span>${documentSources.map((source, i) => `<button class="response-source" data-action="knowledge-view" data-id="${esc(source.id)}" data-chunk="${esc(source.chunk_id)}"><span>${icon("receipt")}<span><small>SOURCE [${esc(source.citation || i + 1)}] · PAGE ${esc(source.page || 1)}</small>${esc(source.title)}</span></span>${icon("arrow")}</button>`).join("")}</div>` : ""}${evidenceLinksHTML(d)}${!documentAnswer && !memoryAnswer && tools.length ? `<a class="response-source" href="#${esc(path)}"><span>${icon("receipt")}<span><small>EXPLORE THE SOURCE</small>${esc(sourceName)}</span></span>${icon("arrow")}</a>` : ""}<details class="evidence"><summary>View sources and assumptions</summary><div class="response-provenance"><p>Asked while viewing <strong>${esc(scope.name)}</strong>.</p>${tools.length ? `<span class="suggestion-label">CALCULATIONS USED</span><ul>${tools.map((name) => `<li>${esc(human(name.replace(/^(get|check)_/, "")))}</li>`).join("")}</ul>` : ""}${confidenceReasonsHTML(d)}${figureSourcesHTML(d)}${assumptions.length ? `<span class="suggestion-label">ASSUMPTIONS & NOTES</span><ul>${assumptions.map((note) => `<li>${esc(note)}</li>`).join("")}</ul>` : ""}</div><details class="evidence"><summary>View full response data</summary><pre>${esc(JSON.stringify(d.evidence ?? {}, null, 2))}</pre></details></details></div>`;
 }
 
 export async function showHistory() {

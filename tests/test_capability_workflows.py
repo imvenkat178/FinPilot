@@ -5,6 +5,8 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select,func
 from tests.chat_capability_manifest import CASES
+from jsonschema import Draft202012Validator
+from finpilot.ai.evidence import EVIDENCE_SCHEMA
 from tests.chat_fixtures import workflow_client,materialize
 from tests.test_chat_actions import proposal,confirm
 from finpilot.persistence.action_models import ActionReceiptRow,WorkflowStateRow
@@ -25,6 +27,8 @@ def test_each_capability_chat_to_application(case):
             "workflow_input":[{"capability":case.name,"arguments":args}]})
         assert response.status_code==200,response.text
         answer=response.json()
+        assert not any(step.get("node")=="evidence" for step in answer.get("trace",[])),answer.get("trace")
+        Draft202012Validator(EVIDENCE_SCHEMA).validate({k:answer[k] for k in ("record_refs","evidence_confidence","figures")})
         assert answer.get("workflow",{}).get("resolved"),answer
         assert answer["workflow"]["operations"]==[{"capability":case.name,"arguments":args}]
         assert c.runtime.read(c.principal).snapshot()==before

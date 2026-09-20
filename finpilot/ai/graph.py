@@ -22,8 +22,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Annotated, Any, Optional, TypedDict
 
+from .facts import TOKEN, FactSheet, TokenError, figure_sources, mask, substitute, tokenize
 from .guardrails import (AnswerState, GroundingReport, GuardVerdict, STATE_PREFIX,
-                         SYSTEM_PROMPT, answer_is_substantive, check_grounding,
+                         SYSTEM_PROMPT, TOKEN_SYSTEM_PROMPT, advice_claim_error,
+                         answer_is_substantive, check_grounding,
                          echoes_untrusted, fence_untrusted, scan_untrusted,
                          scope_check, spending_allowance_claim_error)
 from .llm import LLMUnavailable, LocalLLM
@@ -66,6 +68,11 @@ class AgentState(TypedDict, total=False):
     latency_ms: int
     error: Optional[str]
     inference_deadline: float
+    facts: dict
+    tokenized_reference: str
+    cache: str
+    cache_key: Optional[str]
+    figures: list[dict]
 
 
 @dataclass
@@ -83,6 +90,8 @@ class AgentResult:
     confidence: str
     latency_ms: int
     trace: list[dict] = field(default_factory=list)
+    figures: list[dict] = field(default_factory=list)
+    wording_cache: str = "off"
 
     def to_json(self) -> dict:
         return {"question": self.question, "answer": self.answer,
@@ -91,21 +100,20 @@ class AgentResult:
                 "used_model": self.used_model, "grounding": self.grounding,
                 "guard": self.guard, "assumptions": self.assumptions,
                 "confidence": self.confidence, "latency_ms": self.latency_ms,
-                "evidence": self.tool_results, "trace": self.trace}
+                "evidence": self.tool_results, "trace": self.trace,
+                "figures": self.figures, "wording_cache": self.wording_cache}
 
 
-COMPOSE_USER = """QUESTION FROM THE USER
+COMPOSE_VERSION = "figure-tokens-1"
+COMPOSE_TOKENS = """QUESTION FROM THE USER
 {question}
 
-TOOL RESULT (the only source of facts you may use)
-{payload}
-
-REFERENCE ANSWER produced by the deterministic engine. Every number in it is
-correct. You may rewrite it more naturally, but you may not add a figure that is
-not in the TOOL RESULT above, and you may not drop a stated caveat.
+REFERENCE ANSWER WITH FIGURE TOKENS
 {reference}
 
-Write the answer for the user now."""
+Rewrite the reference answer for the user in clear, natural sentences. Keep the [F#] tokens exactly where their figures belong.{notes}
+
+Write the answer now."""
 
 
 class FinanceAgent:
@@ -113,8 +121,11 @@ class FinanceAgent:
                  tool_choice: ToolChoice = ToolChoice.ROUTER,
                  max_tool_calls: int = 3, *, compile_graph: bool = True,
                  default_account_id: Optional[str] = None,
-                 conversation_context: str = "", route_override: Optional[RouteResult] = None):
+                 conversation_context: str = "", route_override: Optional[RouteResult] = None,
+                 wording_cache=None, cache_scope: str = ""):
         self.tools = registry
+        self.wording_cache = wording_cache
+        self.cache_scope = cache_scope
         self.llm = llm or LocalLLM()
         self.tool_choice = tool_choice
         self.max_tool_calls = max_tool_calls
@@ -206,7 +217,8 @@ class FinanceAgent:
         primary = s["tool_results"][0] if s["tool_results"] else {}
         reference = template_answer(r["intent"], primary)
 
-        if r["intent"] in _DETERMINISTIC_CLARIFICATIONS:
+        if r["intent"] in _DETERMINISTIC_CLARIFICATIONS or r["intent"] == "unknown":
+            # Fixed guidance needs no model, so an unrelated prompt never receives model wording.
             trace.append({"node": "compose", "mode": "clarification"})
             return {**s, "answer": reference, "draft": reference, "used_model": False,
                     "trace": trace}
@@ -222,28 +234,37 @@ class FinanceAgent:
             return {**s, "answer": reference, "draft": reference, "used_model": False,
                     "trace": trace}
 
-        payload = json.dumps(_slim(primary), separators=(",", ":"), default=str)[:6000]
-        user = COMPOSE_USER.format(question=s["question"], payload=payload,
-                                   reference=reference)
-        if r["intent"] == "spending_allowance":
-            user += ("\nThe spendable allowance is TOOL RESULT.amount, after subtracting protected reserves. "
-                     "TOOL RESULT.low_point_balance is the balance BEFORE that subtraction; never call it spendable.")
+        sheet = tokenize(reference)
+        user = COMPOSE_TOKENS.format(question=mask(s["question"], sheet), reference=sheet.tokenized,
+                                     notes=_figure_notes(r["intent"], primary, sheet))
         if self.conversation_context:
-            user += "\n\nPrevious conversation for language context only. Recalculate all figures from the current TOOL RESULT.\n" + fence_untrusted("prior conversation", self.conversation_context)
+            user += ("\n\nPrevious conversation for language context only; its figures are hidden.\n"
+                     + fence_untrusted("prior conversation", mask(self.conversation_context)))
         if s.get("untrusted_context"):
-            user = fence_untrusted("retrieved document", s["untrusted_context"]) \
-                + "\n\n" + user
+            user = fence_untrusted("retrieved document", mask(s["untrusted_context"])) + "\n\n" + user
+        facts = {"facts": sheet.facts, "tokenized_reference": sheet.tokenized}
+        cache_key = None
+        if self.wording_cache is not None:
+            cache_key = self.wording_cache.key(self.cache_scope, "compose", model=self.llm.config.model,
+                                               version=COMPOSE_VERSION, system=TOKEN_SYSTEM_PROMPT, user=user)
+            cached = self.wording_cache.get(cache_key)
+            if cached:
+                trace.append({"node": "compose", "mode": "model", "cache": "hit",
+                              "model": self.llm.config.model, "chars": len(cached)})
+                return {**s, **facts, "draft": cached, "used_model": True, "cache": "hit",
+                        "cache_key": cache_key, "trace": trace}
         try:
             t0 = time.monotonic()
-            draft = self.llm.complete(SYSTEM_PROMPT, user,
+            draft = self.llm.complete(TOKEN_SYSTEM_PROMPT, user,
                                       timeout=self._remaining_budget(s)).strip()
             if not draft:
                 raise LLMUnavailable("The local model returned no answer.")
             trace.append({"node": "compose", "mode": "model",
                           "model": self.llm.config.model,
                           "ms": int((time.monotonic() - t0) * 1000),
-                          "chars": len(draft)})
-            return {**s, "draft": draft, "used_model": True, "trace": trace}
+                          "chars": len(draft), "cache": "miss" if cache_key else "off"})
+            return {**s, **facts, "draft": draft, "used_model": True,
+                    "cache": "miss" if cache_key else "off", "cache_key": cache_key, "trace": trace}
         except LLMUnavailable as e:
             trace.append({"node": "compose", "mode": "template",
                           "reason": f"model call failed: {e}"})
@@ -258,6 +279,17 @@ class FinanceAgent:
         primary = s["tool_results"][0] if s["tool_results"] else {}
         reference = template_answer(r["intent"], primary)
         draft = s.get("draft") or reference
+        if s.get("used_model") and s.get("facts") is not None:
+            try:
+                draft, _ = substitute(draft, FactSheet(s.get("tokenized_reference", ""), s["facts"]))
+            except TokenError as exc:
+                # Report typed figures the way numeric grounding sees them, so a reviewer sees what was invented.
+                typed = check_grounding(TOKEN.sub(" ", draft), s.get("tool_results", []))
+                trace.append({"node": "verify", "result": "rejected", "reason": str(exc),
+                              "action": "fell back to the deterministic answer"})
+                return {**s, "answer": reference, "used_model": False,
+                        "grounding": {"ok": False, "ungrounded": typed.ungrounded, "checked": typed.checked,
+                                      "rejected_for": "figure_tokens"}, "trace": trace}
 
         if s.get("used_model") and r["intent"] == "coverage" and not _coverage_caveats_present(draft):
             trace.append({"node": "verify", "result": "rejected",
@@ -285,7 +317,11 @@ class FinanceAgent:
                     "grounding": {"ok": False, "ungrounded": [], "checked": 0,
                                   "rejected_for": "not_substantive"}, "trace": trace}
 
-        report = check_grounding(draft, s.get("tool_results", []))
+        sources = list(s.get("tool_results", []))
+        if s.get("used_model") and s.get("facts") is not None:
+            # Every figure in a token draft was inserted from the deterministic reference answer.
+            sources.append(list(s["facts"].values()))
+        report = check_grounding(draft, sources)
         if not report.ok:
             trace.append({"node": "verify", "result": "rejected",
                           "ungrounded": report.ungrounded,
@@ -310,9 +346,23 @@ class FinanceAgent:
             return {**s, "answer": reference, "grounding": report.to_json(),
                     "used_model": False, "trace": trace}
 
+        advice = advice_claim_error(draft, reference) if s.get("used_model") else None
+        if advice:
+            trace.append({"node": "verify", "result": "rejected", "reason": advice,
+                          "action": "fell back to the deterministic answer"})
+            return {**s, "answer": reference, "used_model": False,
+                    "grounding": {"ok": False, "ungrounded": [], "checked": report.checked,
+                                  "rejected_for": "advice"}, "trace": trace}
+
+        if s.get("used_model") and s.get("cache") == "miss" and self.wording_cache is not None:
+            # Only wording that passed every check is kept, and it holds tokens, not figures.
+            self.wording_cache.put(s.get("cache_key"), s.get("draft", ""))
+        grounding = report.to_json()
+        if s.get("used_model") and s.get("facts") is not None:
+            grounding["method"] = "figure_tokens"
         trace.append({"node": "verify", "result": "accepted",
                       "figures_checked": report.checked})
-        return {**s, "answer": draft, "grounding": report.to_json(), "trace": trace}
+        return {**s, "answer": draft, "grounding": grounding, "trace": trace}
 
     def n_finalize(self, s: AgentState) -> AgentState:
         r = s.get("route", {})
@@ -321,7 +371,8 @@ class FinanceAgent:
         answer = s.get("answer", "")
         if prefix and not answer.startswith(prefix):
             answer = f"{prefix} {answer}"
-        return {**s, "answer": answer, "state": state.value}
+        figures = figure_sources(tokenize(answer), s.get("tool_results", [])) if s.get("tool_results") else []
+        return {**s, "answer": answer, "state": state.value, "figures": figures}
 
     # ------------------------------------------------------------------
     def _model_tool_calling(self, s: AgentState) -> bool:
@@ -463,7 +514,9 @@ class FinanceAgent:
                          or primary.get("caveats") or []),
             confidence=primary.get("confidence", "exact"),
             latency_ms=int((time.monotonic() - t0) * 1000),
-            trace=final.get("trace", []))
+            trace=final.get("trace", []),
+            figures=final.get("figures", []),
+            wording_cache=final.get("cache", "off"))
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +575,25 @@ def _claims_completed_action(text: str, payloads: list[dict]) -> Optional[str]:
             return (f"the draft claimed a completed action ({claimed!r}) that no "
                     "tool result confirms")
     return None
+
+
+def _figure_notes(intent: str, primary: dict, sheet: FactSheet) -> str:
+    """Name the tokens a small model most often confuses, without showing their values."""
+    if intent != "spending_allowance":
+        return ""
+    tokens = {value: token for token, value in sheet.facts.items()}
+
+    def token_for(key: str) -> Optional[str]:
+        value = primary.get(key)
+        return tokens.get(str(value.get("display"))) if isinstance(value, dict) else None
+
+    spendable, low_point = token_for("amount"), token_for("low_point_balance")
+    notes = []
+    if spendable:
+        notes.append(f"[{spendable}] is the spendable allowance after protected reserves are subtracted.")
+    if low_point and low_point != spendable:
+        notes.append(f"[{low_point}] is the lowest projected balance before that subtraction and is never spendable.")
+    return "\n" + " ".join(notes) if notes else ""
 
 
 def _slim(payload: dict) -> dict:

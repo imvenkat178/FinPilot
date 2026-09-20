@@ -2,10 +2,19 @@
 from types import SimpleNamespace
 import pytest
 
+from finpilot.ai.facts import mask, tokenize
 from finpilot.ai.graph import FinanceAgent
+from finpilot.ai.router import route, template_answer
 from finpilot.ai.guardrails import check_grounding
 from finpilot.ai.tools import ToolRegistry
 from finpilot.seed.demo import demo_household
+
+
+def token_draft(tools, question, draft):
+    """Write a synthetic draft the way the product asks: figures the reference answer holds become tokens."""
+    routed = route(question)
+    sheet = tokenize(template_answer(routed.intent, tools.call(routed.tool, routed.arguments)))
+    return mask(draft, sheet, keep_unknown=True)
 
 
 @pytest.mark.parametrize("claim", [
@@ -57,7 +66,8 @@ def test_currency_word_bypass_is_rejected_in_full_answer_path():
         available = True
         config = SimpleNamespace(timeout=12, model="synthetic-wording")
         def complete(self, *args, **kwargs):
-            return f"Cash is {actual_cash}. You can safely spend 999999 dollars today."
+            return token_draft(tools, "How much money do I have?",
+                               f"Cash is {actual_cash}. You can safely spend 999999 dollars today.")
     result = FinanceAgent(tools, SyntheticModel(), compile_graph=False).ask("How much money do I have?")
     assert not result.used_model
     assert not result.grounding["ok"]
@@ -85,7 +95,8 @@ def test_coverage_prose_cannot_drop_estimate_and_ownership_caveat():
         config = SimpleNamespace(timeout=12, model="synthetic-coverage")
         def complete(self, *args, **kwargs):
             amount = tools.get_deposit_coverage()["total_uncovered"]["display"]
-            return f"The cash in your different platforms is insured. Uncovered deposits total {amount}."
+            return token_draft(tools, "How is my cash protected?",
+                               f"The cash in your different platforms is insured. Uncovered deposits total {amount}.")
     result = FinanceAgent(tools, SyntheticModel(), compile_graph=False).ask("How is my cash protected?")
     assert not result.used_model
     assert result.grounding.get("rejected_for") == "coverage_caveat"
@@ -99,7 +110,8 @@ def test_coverage_prose_can_preserve_its_qualified_estimate():
         config = SimpleNamespace(timeout=12, model="synthetic-coverage")
         def complete(self, *args, **kwargs):
             amount = tools.get_deposit_coverage()["total_uncovered"]["display"]
-            return f"Estimated uncovered deposits total {amount}. Confirm ownership and category with the institution."
+            return token_draft(tools, "How is my cash protected?",
+                               f"Estimated uncovered deposits total {amount}. Confirm ownership and category with the institution.")
     result = FinanceAgent(tools, SyntheticModel(), compile_graph=False).ask("How is my cash protected?")
     assert result.used_model and result.grounding["ok"]
 
@@ -125,8 +137,9 @@ def test_qualified_401k_connection_answer_remains_grounded():
             data = tools.get_account_connections()
             account = next(row for row in data["accounts"] if row["id"] == "acc_401k")
             when = account["last_synced_at"][:10]
-            return (f"Your 401k connection needs attention. Last synced {when}. "
-                    "It is not currently updating; affected estimates need review.")
+            return token_draft(tools, "Is my 401k connection still working?",
+                               f"Your 401k connection needs attention. Last synced {when}. "
+                               "It is not currently updating; affected estimates need review.")
     result = FinanceAgent(tools, SyntheticModel(), compile_graph=False).ask("Is my 401k connection still working?")
     assert result.used_model and result.grounding["ok"]
     assert "401k" in result.answer

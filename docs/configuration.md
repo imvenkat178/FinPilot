@@ -9,6 +9,7 @@ FinPilot reads its configuration from environment variables only. Native startup
 | `FINPILOT_ENV` | unset, meaning development | `production` requires an HTTPS `FINPILOT_PUBLIC_ORIGIN` and PostgreSQL, accepts only that origin's host, sets secure cookies and HSTS, and stops the app from creating tables automatically. |
 | `FINPILOT_PUBLIC_ORIGIN` | unset | The exact public origin, such as `https://finance.example.com`. Used for the same-origin check on writes, trusted hosts, secure cookies and Plaid Link tokens. Required in production. |
 | `FINPILOT_DATABASE_URL` | `sqlite:///./.local/finpilot.db` | SQLAlchemy database URL. Hosted deployments must use PostgreSQL, for example `postgresql+psycopg://...`. |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Read by Uvicorn, not by FinPilot. The peer addresses whose `X-Forwarded-For` and `X-Forwarded-Proto` headers are believed, comma-separated. Set it to the reverse proxy or ingress address; otherwise every user shares the proxy's address in the IP-keyed sign-up and sign-in throttles. FinPilot logs a warning in production while this is unset or loopback. Never set it to `*` on a public address, which lets any client claim any address. |
 
 ## AI model
 
@@ -33,7 +34,7 @@ Without a reachable model, the assistant answers in calculator mode.
 | `PLAID_SECRET` | unset | Plaid secret for the chosen environment. |
 | `PLAID_ENV` | unset | `sandbox` or `production`. |
 
-Bank linking stays unavailable until all three settings and `FINPILOT_TOKEN_KEY` are set. It supports checking, savings and money-market accounts. Sample workspaces can never link banks.
+Bank linking stays unavailable until all three settings and `FINPILOT_TOKEN_KEY` are set. It supports checking, savings, money-market, credit card, auto loan, personal loan, mortgage and student loan accounts; card and loan terms need Plaid's Liabilities product. Sample workspaces can never link banks.
 
 ## Credential encryption
 

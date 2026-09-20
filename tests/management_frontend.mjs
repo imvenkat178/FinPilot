@@ -25,9 +25,9 @@ assert.ok(!html.includes('send_transfer'),'Manual forms cannot grant provider ca
 const transactionResponse = {transactions:[{id:'imported-one',date:'2026-09-09',description:'Cafe & lunch',category:'Dining',kind:'purchase',amount:{amount:'-12.50',currency:'USD'}}],total:1,limit:50,offset:0};
 const response = value => ({ok:true,status:200,headers:{get(){return null}},async json(){return value}});
 let requested='';
-globalThis.fetch=async url=>{requested=url;return response(transactionResponse)};
+globalThis.fetch=async (url,options={})=>{requested={url,method:options.method,body:JSON.parse(options.body||'{}')};return response(transactionResponse)};
 await handleManagementClick({dataset:{manage:'history:test-account'}});
-assert.ok(requested.includes('account_id=test-account')&&requested.includes('limit=50'));
+assert.deepEqual(requested,{url:'/api/transactions/search',method:'POST',body:{account_id:'test-account',limit:50,offset:0,q:''}},'History search sends its filters in the request body, not the URL');
 assert.ok(html.includes('Cafe &amp; lunch'),'Imported rows render after async fetch');
 assert.ok(html.includes('1–1 of 1'),'History reports full paginated total');
 await handleManagementClick({dataset:{manage:'transaction:imported-one'}});

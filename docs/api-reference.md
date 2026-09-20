@@ -332,63 +332,58 @@ Prepares a payment draft for a bill occurrence. Nothing is submitted.
 
 ### Compare debt payoff strategies
 
-`GET /api/debt/compare`
+`POST /api/debt/compare`
 
-Compares debt payoff strategies, optionally with an extra monthly payment.
+Compares debt payoff strategies, optionally with an extra monthly payment sent in the JSON body.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `extra_payment` | query | no | number or string or null |
+Request body: `application/json` (DebtCompareInput).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### Model an extra debt payment
 
-`GET /api/debt/what-if`
+`POST /api/debt/what-if`
 
-Shows the effect of an extra payment toward debt.
+Shows the effect of an extra payment toward debt. Send the amount in the JSON body.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `amount` | query | yes | number or string |
+Request body: `application/json` (DebtWhatIfInput).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### Compare mortgage scenarios
 
-`GET /api/mortgage/scenarios`
+`POST /api/mortgage/scenarios`
 
-Compares mortgage payoff with an optional lump sum and an optional extra monthly payment.
+Compares mortgage payoff with an optional lump sum and an optional extra monthly payment, sent in the JSON body.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `lump_sum` | query | no | number or string or null |
-| `extra_monthly` | query | no | number or string or null |
+Request body: `application/json` (MortgageScenarioInput).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### Compare biweekly mortgage payments
 
-`GET /api/mortgage/biweekly`
+`POST /api/mortgage/biweekly`
 
-Compares a biweekly payment program with monthly payments, net of an optional annual program fee.
+Compares a biweekly payment program with monthly payments, net of an optional annual program fee sent in the JSON body.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `program_fee_per_year` | query | no | number or string or null |
+Request body: `application/json` (BiweeklyInput).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### Choose a card for a purchase
@@ -407,34 +402,30 @@ Request body: `application/json` (CardQuery).
 
 ### Check utilization timing
 
-`GET /api/cards/utilization`
+`POST /api/cards/utilization`
 
-Checks statement utilization timing for a card, optionally with a planned payment.
+Checks statement utilization timing for a card, optionally with a planned payment sent in the JSON body.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `card_id` | query | no | string or null |
-| `payment` | query | no | number or string or null |
+Request body: `application/json` (UtilizationInput).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### Compare savings with debt paydown
 
-`GET /api/tax/net-benefit`
+`POST /api/tax/net-benefit`
 
-Compares the after-tax benefit of saving an amount with paying down debt over `horizon_days`.
+Compares the after-tax benefit of saving an amount with paying down debt over `horizon_days`. Send both in the JSON body.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `amount` | query | yes | number or string |
-| `horizon_days` | query | no | integer |
+Request body: `application/json` (NetBenefitInput).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### Get tax assumptions
@@ -686,23 +677,18 @@ Request body: `application/json` (object).
 | `422` | The request failed validation. |
 | `404` | The record does not exist in this workspace. |
 
-### List transactions
+### Search transactions
 
-`GET /api/transactions`
+`POST /api/transactions/search`
 
-Lists transactions newest first, filtered by account, text or category, with `limit` and `offset` paging.
+Lists transactions newest first, filtered by account, text or category, with `limit` and `offset` paging. Filters travel in the JSON body so search text stays out of URLs and logs.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `account_id` | query | no | string or null |
-| `q` | query | no | string |
-| `category` | query | no | string or null |
-| `limit` | query | no | integer |
-| `offset` | query | no | integer |
+Request body: `application/json` (TransactionSearch).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### List recent changes
@@ -726,7 +712,7 @@ Lists recent workspace change events with the action, revision, actor and time.
 
 `POST /api/ask`
 
-Answers a question or request inside a saved conversation. Numbers come from deterministic calculations; requested changes come back as proposals that need confirmation. Rate limited per user and by assistant capacity.
+Answers a question or request inside a saved conversation. Numbers come from deterministic calculations, and model wording carries figure tokens that the server fills in and checks. Answers link the household records behind them, name the result field behind each figure and carry an evidence confidence level. Unrelated requests get a fixed reply without a model call. Requested changes come back as proposals that need confirmation. Rate limited per user and by assistant capacity.
 
 Request body: `application/json` (AskIn).
 
@@ -952,19 +938,16 @@ Request body: `multipart/form-data` (Body_upload_document_api_documents_post).
 
 ### Search documents
 
-`GET /api/documents/search`
+`POST /api/documents/search`
 
-Finds matching passages in private documents, optionally limited to selected documents.
+Finds matching passages in private documents, optionally limited to selected documents. Send the question in the JSON body.
 
-| Parameter | In | Required | Type |
-| --- | --- | --- | --- |
-| `q` | query | yes | string |
-| `document_id` | query | no | array of string or null |
-| `limit` | query | no | integer |
+Request body: `application/json` (DocumentSearch).
 
 | Error | Meaning |
 | --- | --- |
 | `401` | Not signed in, the session expired, or the MCP read token is missing, expired or revoked. |
+| `403` | Cross-site request, failed CSRF check, or the role or workspace type does not allow this action. |
 | `422` | The request failed validation. |
 
 ### Get a document

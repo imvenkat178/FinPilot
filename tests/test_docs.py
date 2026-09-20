@@ -39,6 +39,6 @@ def test_every_setting_is_documented():
     names = set()
     for folder in ("finpilot", "scripts"):
         for path in (ROOT / folder).rglob("*.py"):
-            names.update(re.findall(r"\b((?:FINPILOT|PLAID|LANGCHAIN)_[A-Z0-9_]+)\b", path.read_text(encoding="utf-8")))
+            names.update(re.findall(r"\b((?:FINPILOT|PLAID|LANGCHAIN)_[A-Z0-9_]+|FORWARDED_ALLOW_IPS)\b", path.read_text(encoding="utf-8")))
     missing = sorted(name for name in names if f"`{name}`" not in reference)
     assert not missing, f"Document these settings in docs/configuration.md: {missing}"

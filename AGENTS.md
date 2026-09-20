@@ -78,7 +78,7 @@ between tools; these files are not.
 | Virtualenv | `.venv/` (Windows: `.venv/Scripts/python.exe`) |
 | Memory scripts | `scripts/roadmap.py` and `scripts/check_handoff.py` use only the standard library, so `python` on PATH (Python 3.12 here) or the virtualenv both work |
 | Run locally | `.venv/Scripts/python.exe -m uvicorn finpilot.api.app:app --host 127.0.0.1 --port 8100` |
-| Python tests | `.venv/Scripts/python.exe -m pytest -q` (763 tests in about 80 seconds on 2026-09-14; run a single file while iterating) |
+| Python tests | `.venv/Scripts/python.exe -m pytest -q` (832 tests; runs on 2026-09-14 and 2026-09-15 took 80 to 170 seconds depending on machine load; run a single file while iterating) |
 | Sandboxed pytest | If `tmp_path` or the cache fails with `PermissionError`, add `-p no:cacheprovider --basetemp <writable dir>` |
 | Frontend tests | Run `node tests/<name>_frontend.mjs` per suite; `README.md` lists them. Only `tests/frontend.mjs` needs the app running on port 8100 (or `FINPILOT_TEST_URL`) |
 | Roadmap | `python scripts/roadmap.py next`, `status`, `write`, `check`, `json` |
@@ -88,6 +88,7 @@ between tools; these files are not.
 | Code paths for the strict check | `.agent-memory.json` lists FinPilot's code prefixes |
 | Git hooks | Run `git config core.hooksPath .githooks` once per clone so every push runs the memory checks |
 | Reference docs | `.venv/Scripts/python.exe scripts/build_docs.py` regenerates the API, capability and data model references; `tests/test_docs.py` fails when they are stale or a route or setting is undocumented |
+| Plaid Sandbox check | Put the Sandbox keys in the git-ignored `.local/plaid-sandbox.env`, then `python scripts/verify_plaid_sandbox.py` links, syncs and disconnects through FinPilot's routes and writes `validation/plaid-sandbox-e2e.json`. Never print or commit the keys |
 | Migrations | Alembic, `alembic/versions/`. New tables or columns need a migration and `tests/test_migrations.py` must still pass |
 | Local data | `.local/` (git-ignored). Never commit it. Evidence files that docs cite live in `validation/` |
 | Config | Environment variables only; see `.env.example`. Native startup does not load `.env` |
@@ -118,6 +119,9 @@ between tools; these files are not.
 
 - **Tenant boundary.** Every read and write derives the household from the session.
   IDs and query parameters never grant access. New routes must follow this.
+- **No amounts or free text in URLs.** Query strings reach proxy, platform and error tracker
+  logs. Send amounts and search text in the JSON body; `tests/test_request_logging.py` fails
+  when a query parameter is not an identifier, date, count or flag.
 - **Money is `Decimal`**, never float. Persisted JSON is versioned and allowlisted.
   No pickle anywhere in application persistence.
 - **AI never executes.** Models can plan and explain; financial numbers come from the

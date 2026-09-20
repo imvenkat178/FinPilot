@@ -84,6 +84,19 @@ class ToolSpec:
     read_only: bool = False
 
 
+def _forecast_record_ids(forecast) -> dict:
+    """The bills, income sources and pending transactions dated inside a forecast window."""
+    keys = {"bill": "bill_ids", "optional_bill": "bill_ids", "income": "income_source_ids",
+            "pending": "transaction_ids"}
+    out: dict[str, list[str]] = {"bill_ids": [], "income_source_ids": [], "transaction_ids": []}
+    for day in forecast.days:
+        for entry in day.entries:
+            key = keys.get(entry.kind)
+            if key and entry.record_id and entry.record_id not in out[key]:
+                out[key].append(entry.record_id)
+    return out
+
+
 class ToolRegistry:
     """Binds the calculators to one household with one permission scope."""
 
@@ -548,7 +561,12 @@ class ToolRegistry:
         if not acct_id or not self._in_scope(acct_id):
             return {"error": "no checking account in scope"}
         led = LedgerEngine(self.hh)
-        return led.spending_allowance(acct_id, days).to_json()
+        out = led.spending_allowance(acct_id, days).to_json()
+        out["account_id"] = acct_id
+        out.update(_forecast_record_ids(led.forecast(acct_id, days=days)))
+        out["reserve_ids"] = sorted(r.id for r in self.hh.reserves.values()
+                                    if r.account_id == acct_id and r.protected and r.funded.is_positive)
+        return out
 
     def get_cash_forecast(self, account_id: Optional[str] = None,
                           days: int = 45) -> dict:
@@ -561,6 +579,7 @@ class ToolRegistry:
         out = fc.to_json(include_days=False)
         out["daily"] = [{"date": d.date.isoformat(), "closing": str(d.closing.round().amount)}
                         for d in fc.days]
+        out.update(_forecast_record_ids(fc))
         return out
 
     def get_upcoming_obligations(self, days: int = 30) -> dict:
@@ -596,7 +615,27 @@ class ToolRegistry:
     # ---- debt ---------------------------------------------------------
     def _household_debts(self) -> list[DebtSnapshot]:
         return [DebtSnapshot.from_liability(l) for l in self.hh.liabilities.values()
-                if l.balance.is_positive and self._in_scope(l.account_id)]
+                if l.balance.is_positive and l.terms_complete and self._in_scope(l.account_id)]
+
+    def _missing_terms(self) -> list[str]:
+        """Debts in totals whose rate or required payment is unknown, so models leave them out."""
+        return sorted(l.name for l in self.hh.liabilities.values()
+                      if l.balance.is_positive and not l.terms_complete and self._in_scope(l.account_id))
+
+    def _no_modelled_debts(self) -> dict:
+        missing = self._missing_terms()
+        if missing:
+            return {"error": "Enter the interest rate and required payment for " + ", ".join(missing)
+                             + " to compare payoff plans.", "missing_terms": missing}
+        return {"error": "no debts on file"}
+
+    def _no_modelled_mortgage(self) -> dict:
+        waiting = sorted(l.name for l in self.hh.liabilities.values() if l.type == AccountType.MORTGAGE
+                         and not l.terms_complete and self._in_scope(l.account_id))
+        if waiting:
+            return {"error": "Enter principal and interest and escrow separately for " + ", ".join(waiting)
+                             + " to model mortgage scenarios.", "missing_terms": waiting}
+        return {"error": "no mortgage on file"}
 
     def compare_debt_strategies(self, extra_payment: Optional[float] = None,
                                 use_worked_example: bool = False) -> dict:
@@ -607,7 +646,7 @@ class ToolRegistry:
         else:
             debts = self._household_debts()
             if not debts:
-                return {"error": "no debts on file"}
+                return self._no_modelled_debts()
             required = msum([d.minimum for d in debts], self.cur)
             extra = Money(D(str(extra_payment)), self.cur) if extra_payment is not None \
                 else Money(D("500"), self.cur)
@@ -616,7 +655,8 @@ class ToolRegistry:
         cmp_ = compare_strategies(debts, budget)
         out = cmp_.to_json()
         out["source"] = source
-        out["debts"] = [{"name": d.name, "balance": d.balance.to_json(),
+        out["missing_terms"] = [] if use_worked_example else self._missing_terms()
+        out["debts"] = [{"id": d.id, "name": d.name, "balance": d.balance.to_json(),
                          "apr": str(d.apr), "minimum": d.minimum.to_json()}
                         for d in debts]
         return out
@@ -624,7 +664,7 @@ class ToolRegistry:
     def what_if_extra_payment(self, amount: float) -> dict:
         debts = self._household_debts()
         if not debts:
-            return {"error": "no debts on file"}
+            return self._no_modelled_debts()
         required = msum([d.minimum for d in debts], self.cur)
         base = compare_strategies(debts, required, [Strategy.HIGHEST_RATE])
         with_extra = compare_strategies(
@@ -643,6 +683,7 @@ class ToolRegistry:
             "months_saved": b.months_to_clear - w.months_to_clear,
             "interest_saved": (b.total_interest - w.total_interest).to_json(),
             "target_order": [p.name for p in w.payoffs],
+            "missing_terms": self._missing_terms(),
             "cash_floor_effect": (allowance.to_json() if allowance else None),
             "caveat": ("Modelled savings, not realised savings. Extra principal does "
                        "not reduce the next required installment unless the servicer "
@@ -652,9 +693,9 @@ class ToolRegistry:
     def get_mortgage_scenarios(self, lump_sum: Optional[float] = None,
                                extra_monthly: Optional[float] = None) -> dict:
         mort = next((l for l in self.hh.liabilities.values()
-                     if l.type == AccountType.MORTGAGE), None)
+                     if l.type == AccountType.MORTGAGE and l.terms_complete), None)
         if mort is None:
-            return {"error": "no mortgage on file"}
+            return self._no_modelled_mortgage()
         if not self._in_scope(mort.account_id):
             return {"error": "no mortgage on file"}
         cash = self.hh.total_cash(account_ids=self.scope)
@@ -664,7 +705,7 @@ class ToolRegistry:
             Money(D(str(lump_sum)), self.cur) if lump_sum else None,
             Money(D(str(extra_monthly)), self.cur) if extra_monthly else None,
             cash, Money(D("250"), self.cur))
-        return {"mortgage": {"balance": mort.balance.to_json(), "apr": str(mort.apr),
+        return {"mortgage": {"liability_id": mort.id, "balance": mort.balance.to_json(), "apr": str(mort.apr),
                              "principal_and_interest": mort.minimum_payment.to_json(),
                              "escrow": mort.escrow.to_json()},
                 "scenarios": [s.to_json() for s in scen],
@@ -675,12 +716,14 @@ class ToolRegistry:
     def compare_biweekly_mortgage(self, program_fee_per_year: Optional[float] = None
                                   ) -> dict:
         mort = next((l for l in self.hh.liabilities.values()
-                     if l.type == AccountType.MORTGAGE), None)
+                     if l.type == AccountType.MORTGAGE and l.terms_complete), None)
         if mort is None or not self._in_scope(mort.account_id):
-            return {"error": "no mortgage on file"}
-        return biweekly_comparison(
+            return self._no_modelled_mortgage() if mort is None else {"error": "no mortgage on file"}
+        out = biweekly_comparison(
             mort.balance, mort.apr, mort.minimum_payment,
             Money(D(str(program_fee_per_year)), self.cur) if program_fee_per_year else None)
+        out["liability_id"] = mort.id
+        return out
 
     def plan_promotional_payoff(self, balance: float, paychecks_remaining: int) -> dict:
         return promo_payoff_reserve(Money(D(str(balance)), self.cur),
@@ -745,7 +788,9 @@ class ToolRegistry:
         if card is None:
             return {"error": "no card on file"}
         pay = Money(D(str(payment)), self.cur) if payment is not None else card.current_balance
-        return utilization_timing(card, pay, self.hh.as_of)
+        out = utilization_timing(card, pay, self.hh.as_of)
+        out["card_id"] = card.id
+        return out
 
     # ---- liquidity -------------------------------------------------------
     def get_buffer(self, account_id: Optional[str] = None) -> dict:
@@ -1043,6 +1088,12 @@ class ToolRegistry:
             "emergency_reserve": reserves.to_json(),
             "runway_months_at_required_only": runway_months,
             "unmet": unmet.to_json(),
+            "bill_ids": sorted(b.id for b in self.hh.bills.values()
+                               if b.required and self._in_scope(b.funding_account_id)),
+            "reserve_ids": sorted(r.id for r in self.hh.reserves.values()
+                                  if r.purpose.value == "emergency" and self._in_scope(r.account_id)),
+            "account_ids": sorted(a.id for a in self.hh.cash_accounts if self._in_scope(a.id)
+                                  and a.included_in_planning and a.currency == self.hh.base_currency),
             "changes_required": [
                 "Optional transfers pause: brokerage funding, extra principal and "
                 "discretionary spending.",

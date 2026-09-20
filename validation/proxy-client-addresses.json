@@ -1,0 +1,82 @@
+{
+  "checked": "2026-09-20",
+  "goal": "G1.2",
+  "proxy": "nginx:alpine container",
+  "register_limit_per_client": 8,
+  "simulated_users": 9,
+  "proxy_peer_address": "127.0.0.1",
+  "uvicorn_default_trusts": "127.0.0.1",
+  "default_is_safe_here": true,
+  "untrusted_proxy": {
+    "trusted_proxy_addresses": "198.51.100.7",
+    "distinct_client_addresses": 9,
+    "sign_up_statuses": [
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      429
+    ],
+    "throttled": 1,
+    "app_saw_peers": [
+      "127.0.0.1"
+    ]
+  },
+  "trusted_proxy": {
+    "trusted_proxy_addresses": "127.0.0.1",
+    "distinct_client_addresses": 9,
+    "sign_up_statuses": [
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      201
+    ],
+    "throttled": 0,
+    "app_saw_peers": [
+      "203.0.113.10",
+      "203.0.113.11",
+      "203.0.113.12",
+      "203.0.113.13",
+      "203.0.113.14",
+      "203.0.113.15",
+      "203.0.113.16",
+      "203.0.113.17",
+      "203.0.113.18"
+    ]
+  },
+  "trusted_proxy_one_client": {
+    "trusted_proxy_addresses": "127.0.0.1",
+    "distinct_client_addresses": 1,
+    "sign_up_statuses": [
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      201,
+      429
+    ],
+    "throttled": 1,
+    "app_saw_peers": [
+      "203.0.113.10"
+    ]
+  },
+  "expected": {
+    "untrusted_proxy": "forwarded addresses ignored, so all users share the proxy address and one is throttled",
+    "proxy_peer_address": "the address FinPilot must trust; the Uvicorn default only covers 127.0.0.1",
+    "trusted_proxy": "each forwarded address counted separately, so no user is throttled",
+    "trusted_proxy_one_client": "one address over the limit is still throttled"
+  },
+  "passed": true
+}

@@ -330,7 +330,7 @@ export function debtComparison(d) {
         money(r.total_interest, true),
       ),
     ),
-  )}<p class="chart-caption">${esc(d.objective_note || "Figures use the stored loan balances and terms.")}</p>`;
+  )}${d.missing_terms?.length ? `<p class="chart-caption">Not included until their rate and required payment are entered: ${esc(d.missing_terms.join(", "))}.</p>` : ""}<p class="chart-caption">${esc(d.objective_note || "Figures use the stored loan balances and terms.")}</p>`;
 }
 export function debtPage() {
   return (

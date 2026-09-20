@@ -30,6 +30,12 @@
 .answer-document-sources .response-source { width: 100%; margin: 0; text-align: left; }
 .answer-document-sources .response-source > span { min-width: 0; }
 .answer-document-sources .response-source > span > span { overflow-wrap: anywhere; }
+/* Evidence confidence: filled green is high, filled orange is medium, an orange ring is low. */
+.answer-confidence::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--muted); vertical-align: 1px; }
+.answer-confidence[data-level="high"]::before { background: var(--green); }
+.answer-confidence[data-level="medium"]::before { background: var(--orange); }
+.answer-confidence[data-level="low"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--orange); }
+.answer-evidence .response-source small { letter-spacing: .04em; }
 .saved-answer-meta { color: #76637f; font-size: 10px; margin: -6px 0 0; }
 #assistant-secondary { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 20px 24px 24px; }
 .knowledge-heading { margin-bottom: 18px; }

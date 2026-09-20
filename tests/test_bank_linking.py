@@ -44,6 +44,8 @@ class Provider:
         self.calls = []
         self.fail = None
         self.on_sync = None
+        self.liabilities = {"credit": [], "mortgage": [], "student": []}
+        self.liabilities_error = None
 
     def __call__(self, request):
         path, body = request.url.path, json.loads(request.content)
@@ -66,6 +68,13 @@ class Provider:
             result = self.updates.pop(0) if len(self.updates) > 1 else self.updates[0]
             if result.get("error_code"):
                 return httpx.Response(400, json=result)
+        elif path == "/liabilities/get":
+            if self.liabilities_error:
+                return httpx.Response(400, json={"error_code": self.liabilities_error,
+                    "error_message": "synthetic liabilities error"})
+            result = {"accounts": self.accounts, "liabilities": self.liabilities}
+        elif path == "/sandbox/public_token/create":
+            result = {"public_token": "public-sandbox-test"}
         elif path == "/item/remove":
             result = {"request_id": "removed-test"}
         else:
@@ -117,6 +126,9 @@ def test_link_encryption_real_balances_and_read_only_capabilities(bank):
     payload = mock.calls[-1][1]
     assert payload["products"] == ["transactions"]
     assert payload["account_filters"]["depository"]["account_subtypes"] == ["checking", "savings", "money market"]
+    assert payload["optional_products"] == ["liabilities"]
+    assert payload["account_filters"]["credit"]["account_subtypes"] == ["credit card"]
+    assert payload["account_filters"]["loan"]["account_subtypes"] == ["auto", "consumer", "mortgage", "student"]
     connection_id = link(client)
     row, ctx = saved(r), context(client, r)
     assert TOKEN not in row.encrypted_access_token
@@ -355,12 +367,20 @@ def test_omitted_or_incomplete_account_snapshot_marks_existing_data_stale(bank, 
 def test_missing_balances_and_credit_terms_are_not_invented(bank):
     client, r, mock, _ = bank
     register(client)
-    mock.accounts = [account(available=None), dict(account("credit"), type="credit", subtype="credit card")]
-    connection_id = link(client)
+    mock.accounts = [account(available=None), dict(account("credit"), name="Card", type="credit", subtype="credit card")]
+    link(client)
     ctx = context(client, r)
-    assert not ctx.household.accounts and not ctx.household.cards and not ctx.household.liabilities
-    assert len(saved(r).notices) == 2
-    assert client.get("/api/bank/connections").json()["connections"][0]["account_ids"] == []
+    (card_account,) = ctx.household.accounts.values()
+    assert card_account.type.value == "credit_card" and card_account.current.amount == Decimal("-1100.10")
+    (liability,) = ctx.household.liabilities.values()
+    assert liability.balance.amount == Decimal("1100.10") and not liability.terms_complete
+    assert liability.apr == 0 and liability.minimum_payment.is_zero and not ctx.household.cards
+    notices = saved(r).notices
+    assert len(notices) == 3 and "incomplete balances" in notices[0]
+    assert "Card" in notices[1] and "interest rate" in notices[1] and "credit limit" in notices[2]
+    assert client.get("/api/bank/connections").json()["connections"][0]["account_ids"] == [card_account.id]
+    comparison = client.post("/api/debt/compare", json={}).json()
+    assert comparison["missing_terms"] == ["Card"] and "Card" in comparison["error"]
 
 
 def test_environment_mismatch_and_unreadable_token_prevent_provider_calls(bank):

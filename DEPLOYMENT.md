@@ -69,6 +69,35 @@ Take and verify a database backup before applying new production migrations. Pre
 
 If an existing development database was created before Alembic, do not blindly run or stamp the initial revision. Compare its schema to the current metadata and back it up first. The simplest development route is a fresh database. Hosted environments should start with Alembic-managed schemas.
 
+## Reverse proxy and client addresses
+
+Uvicorn believes `X-Forwarded-For` and `X-Forwarded-Proto` only from the peers in `FORWARDED_ALLOW_IPS`, which defaults to `127.0.0.1`. Set it to the address the ingress connects from, for example `FORWARDED_ALLOW_IPS=10.0.1.4` or a comma-separated list, and keep the proxy on a private network. Never use `*` on a public address: any client could then claim any address.
+
+Unset or wrong, the forwarded headers are dropped and `request.client.host` becomes the proxy's own address for every user. The sign-up limit of 8 per 5 minutes and the sign-in limit of 30 per 5 minutes then apply to all users together, so one busy period locks out everybody. FinPilot logs a warning at startup when `FINPILOT_ENV=production` and this setting is unset or loopback.
+
+Measured with an nginx container in front of the app on 2026-09-20 (`validation/proxy-client-addresses.json`): with the proxy untrusted, 9 users from 9 different addresses shared one throttle key and the ninth sign-up was rejected with 429; with the proxy trusted, all 9 succeeded, while 9 sign-ups from one address were still throttled at the ninth. Reproduce with `python scripts/verify_proxy_client_addresses.py`, which needs Docker. Note that a container's address depends on the runtime: Docker Desktop for Windows reached the host from `127.0.0.1`, which the default already trusts, while a Linux bridge network arrives from a gateway such as `172.17.0.1`, which it does not.
+
+## Request logs
+
+FinPilot writes one line per request to standard error:
+
+```text
+2026-09-14 18:40:02,117 INFO finpilot.requests POST /api/debt/what-if status=200 duration_ms=41.3 request_id=5f0c2b7e9a4d4c1e8f3a6b2d7c9e0f14
+```
+
+The line holds the method, path, status, duration and request ID, and the `X-Request-ID` response header carries the same ID. It never holds query strings, request bodies, questions, credentials or amounts. Amounts and search text travel in JSON request bodies, so URLs carry only identifiers, dates, counts and flags.
+
+- The container image starts Uvicorn with `--no-access-log`, so each request produces one line. Add the same flag when you start Uvicorn yourself in a hosted environment. If the access log stays on, FinPilot removes query strings from it.
+- FinPilot adds its own log handler only when neither the root logger nor the `finpilot` logger has one, so a logging configuration you pass to Uvicorn stays in charge. It sets `finpilot.requests` to `INFO` only when that logger has no level.
+- Configure the reverse proxy or ingress to log paths without query strings. In nginx, log `$uri` instead of `$request` or `$request_uri`:
+
+```nginx
+log_format finpilot '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent $request_time';
+access_log /var/log/nginx/finpilot.access.log finpilot;
+```
+
+- Hosting platforms and load balancers can keep request logs of their own. Check what they record before launch, and never turn on request body logging for FinPilot traffic.
+
 ## Optional Plaid bank linking
 
 The bank adapter remains disabled until all four settings are supplied through process environment variables or the deployment secret store:
@@ -84,15 +113,19 @@ Generate the encryption key locally with `python -c "from cryptography.fernet im
 
 Run Alembic to head, including `20260911_0002_bank_connections`, before enabling credentials. For hosted Link OAuth, register the exact HTTPS public origin plus `/` as an allowed Plaid redirect URI. The frontend loads the [official Plaid Link SDK](https://plaid.com/docs/transactions/add-to-app/) only after configured linking is requested, and resumes OAuth for the same signed-in browser session. Allow the official SDK and provider's frames if adding a stricter deployment CSP.
 
-Start with operator-controlled Plaid Sandbox testing; Sandbox is visibly labeled and uses test institutions. Production requires the operator's enabled Plaid application and appropriate institution/product access. The app requests Transactions and accepts checking, savings, and money-market deposit accounts; cards, loan terms, investments, money movement, and ownership verification are not provided by this adapter. Existing manual account/card/loan features remain available.
+Start with operator-controlled Plaid Sandbox testing; Sandbox is visibly labeled and uses test institutions. Production requires the operator's enabled Plaid application and appropriate institution/product access. The app requests Transactions, with Liabilities as an optional product, and accepts checking, savings, money-market, credit card, auto loan, personal loan, mortgage and student loan accounts. Enable Liabilities for the Plaid application to receive card and loan terms; without it, linked debts still show balances and count in debt totals. Investments, money movement and ownership verification are not provided by this adapter. Manual accounts, cards and loans remain available.
 
 Create an empty workspace for bank linking. A workspace created with sample data is permanently a payment simulation sandbox and cannot link banks. Conversely, payment simulation run/recover endpoints reject real workspaces. Bank linking grants balance and transaction reads only; it cannot send payments.
 
-Use Connections → Sync to refresh a linked bank. Data from `/accounts/get` is a cached snapshot, with retrieval time shown separately; it is not a live balance verification. The first transaction sync can be empty while the provider prepares history. There are no automatic/webhook refreshes yet. Do not link the same account again to refresh it, because distinct provider connections are not automatically merged by name or account mask.
+Use Connections → Sync to refresh a linked bank. Data from `/accounts/get` is a cached snapshot, with retrieval time shown separately; it is not a live balance verification. The first transaction sync can be empty while the provider prepares history. There are no automatic/webhook refreshes yet. Do not link the same account again to refresh it, because distinct provider connections are not automatically merged by name or account mask. Link requests up to 730 days of transaction history. CSV import is refused for an account that syncs from a healthy bank connection, so the same transactions are not imported twice; disconnect the bank before importing older history into that account.
 
 Disconnect requests provider revocation, removes the encrypted token, and retains saved financial records. A failed or interrupted exchange/revocation can leave an uncertain remote grant, since provider and database commits are separate; review the bank/Plaid connection before retrying. Institution reconnect/update mode and token-key recovery require operator attention. No successful connection is invented when credentials or provider access are unavailable.
 
-Bank integration tests use a mocked HTTP transport and synthetic tokens only. They verify tenant/role/CSRF boundaries, encryption, sample isolation, duplicate ingestion, pending/posting transitions, pagination restart, cursor races, rollback, missing balances, and disconnect failures. No live Plaid Sandbox/Production call or bank account was used, so live institutional behavior and OAuth must be checked in the operator's configured environment before rollout.
+Users see a generic message when a Plaid call fails. The server logs a `finpilot.integrations.plaid` warning with the Plaid environment, endpoint, HTTP status, `error_type`, `error_code` and Plaid `request_id`, and never the error message, keys or tokens. For example, `INVALID_API_KEYS` on `production` usually means the secret belongs to the Sandbox environment. Bank linking also reports "not enabled" until `FINPILOT_TOKEN_KEY` holds a valid Fernet key.
+
+Bank integration tests use a mocked HTTP transport and synthetic tokens only. They verify tenant/role/CSRF boundaries, encryption, sample isolation, duplicate ingestion, pending/posting transitions, pagination restart, cursor races, rollback, missing balances, card and loan terms, unavailable Liabilities, category mapping, CSV refusal for synced accounts, and disconnect failures. Those tests use no live Plaid call or bank account, so production institutions and OAuth must still be checked in the operator's configured environment before rollout.
+
+Put the Sandbox client ID and secret in `.local/plaid-sandbox.env`, which `python scripts/verify_plaid_sandbox.py --create-env-file` writes as a template in the git-ignored `.local/` folder, or set `PLAID_CLIENT_ID` and `PLAID_SECRET`, which take precedence. Then run `python scripts/verify_plaid_sandbox.py`. It links a Sandbox item through FinPilot's own routes without a browser, syncs until transactions arrive, records imported accounts, card and loan terms and categories, disconnects, and writes `validation/plaid-sandbox-e2e.json` without keys, tokens or provider IDs. Failed provider calls are listed by endpoint and Plaid error code. It passed against Plaid Sandbox on 2026-09-14 local time, recorded in `validation/plaid-sandbox-e2e.json`, and `tests/test_plaid_sandbox_check.py` runs it against a mocked Plaid. The run needs outbound HTTPS to `sandbox.plaid.com`, so an agent in a network sandbox may need approval first.
 
 Email/password sign-in is available. Email verification, MFA, self-service password recovery, and recovery emails are not implemented; deployment does not provision those capabilities.
 

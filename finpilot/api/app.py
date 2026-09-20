@@ -29,10 +29,11 @@ from .document_routes import router as document_router
 from .mcp_routes import router as mcp_router
 from .action_routes import router as action_router
 from .route_docs import apply_route_docs
+from .request_logging import REQUEST_LOGGER, configure_request_logging
 from ..services.conversations import ConversationBusy
 
 WEB = Path(__file__).resolve().parent.parent / "web"
-log = logging.getLogger("finpilot.requests")
+log = logging.getLogger(REQUEST_LOGGER)
 
 
 class BodyLimitMiddleware:
@@ -54,7 +55,22 @@ class BodyLimitMiddleware:
         await self.app(scope, bounded_receive, send)
 
 
+def warn_about_proxy_trust(production):
+    """Hosted ingress is rarely on loopback, and Uvicorn only trusts 127.0.0.1 by default.
+
+    Untrusted forwarding headers are dropped, so `request.client.host` becomes the proxy's own
+    address for every user and the IP-keyed sign-up and sign-in throttles apply to all of them
+    together (G1.2). Only the operator knows the ingress address, so warn instead of guessing.
+    """
+    trusted = os.getenv("FORWARDED_ALLOW_IPS", "").strip()
+    if production and trusted in ("", "127.0.0.1", "localhost"):
+        logging.getLogger(__name__).warning("FORWARDED_ALLOW_IPS is %s, so forwarded client addresses are trusted only from "
+                    "loopback. Set it to the ingress address, or sign-up and sign-in throttles will "
+                    "key on the proxy address for every user.", trusted or "unset")
+
+
 def create_app(database_url=None, *, llm=None):
+    configure_request_logging()
     runtime = Runtime(Database(database_url), llm)
     # Version the entire relative-import tree together. Updating only app.js
     # leaves a browser free to reuse an older cached assistant.js or core.js.
@@ -68,6 +84,7 @@ def create_app(database_url=None, *, llm=None):
     origin = os.getenv("FINPILOT_PUBLIC_ORIGIN", "").rstrip("/")
     if production and (not origin.startswith("https://") or not urlparse(origin).hostname):
         raise RuntimeError("Set FINPILOT_PUBLIC_ORIGIN to the hosted HTTPS origin.")
+    warn_about_proxy_trust(production)
 
     @asynccontextmanager
     async def lifespan(app):

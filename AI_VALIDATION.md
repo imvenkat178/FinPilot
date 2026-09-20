@@ -156,6 +156,25 @@ Verified on the actual local application at desktop 1366 x 900 and compact 390 x
 
 The file chooser stalled during the CSV journey; the eventual upload, preview, confirmation and restoration succeeded. This browser-tool delay is separate from the measured API model latencies. Destructive source tests and credential/access tests use isolated automated fixtures.
 
+<!-- figure-tokens:start -->
+## Figure-token wording: 2026-09-15
+
+Measured with `scripts/measure_figure_tokens.py` on the fictional demo household through local Ollama, one model at a time, with other processes sharing the machine. The model rewrites a reference answer whose figures are tokens; the server inserts the exact figures and runs every answer check. Each run started with one warm-up request, and the client's failure cooldown was off so that one timeout did not turn later questions into calculator answers. Ten questions were asked once each. Every answer that kept model wording was asked again with the same data and again after a 100-dollar checking balance change.
+
+| Model and budget | Model calls | Model wording kept | Rejected by checks | Over budget or failed | No model needed | Median seconds with a call | Repeats from cache | Model calls on repeat | Cache reused after balance change | Answers that changed with the balance |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| llama3.2:latest, 12 s (normal budget) | 9 | 5 of 10 | 2 (allowance wording 1, typed figure 1) | 2 | 1 | 7.28 | 5 of 5 | 0 | 5 of 5 | 1 |
+| llama3.2:latest, 60 s (diagnostic) | 9 | 6 of 10 | 2 (allowance wording 1, typed figure 1) | 1 | 1 | 6.91 | 6 of 6 | 0 | 6 of 6 | 1 |
+| llama3.1:8b-instruct-q4_K_M, 12 s (normal budget) | 9 | 3 of 10 | 0 (none) | 6 | 1 | 12.02 | 3 of 3 | 0 | 3 of 3 | 1 |
+| llama3.1:8b-instruct-q4_K_M, 60 s (diagnostic) | 9 | 7 of 10 | 2 (allowance wording 1, typed figure 1) | 0 | 1 | 14.09 | 7 of 7 | 0 | 7 of 7 | 1 |
+
+"No model needed" counts questions whose calculation returned an error or a fixed clarification, which never reach the model. Rejected and over-budget answers used calculator wording. Cached wording is reused only after it passed every check, and the figures in a reused answer come from the current data. The 60-second runs are diagnostics of token handling, not evidence for the default 12-second budget.
+
+"Compare putting 1000 into savings versus debt for 365 days" got fixed guidance because the router did not recognize it and needed no model call in every run.
+
+Evidence, including each raw model draft and rejection reason: [llama3.2:latest, 12 s](validation/figure-tokens-llama3.2-12s.json) (checked 2026-09-15T07:11:07+00:00); [llama3.2:latest, 60 s](validation/figure-tokens-llama3.2-60s.json) (checked 2026-09-15T07:12:21+00:00); [llama3.1:8b-instruct-q4_K_M, 12 s](validation/figure-tokens-llama3.1-8b-12s.json) (checked 2026-09-15T07:14:07+00:00); [llama3.1:8b-instruct-q4_K_M, 60 s](validation/figure-tokens-llama3.1-8b-60s.json) (checked 2026-09-15T07:16:48+00:00).
+<!-- figure-tokens:end -->
+
 ## Limits and release status
 
 - Some local-model interpretations/timeouts remain limited. Structured workflow controls and calculator fallbacks preserve application access; they are not evidence of successful model understanding.
@@ -173,6 +192,7 @@ The file chooser stalled during the CSV journey; the eventual upload, preview, c
     .venv/Scripts/python.exe -m scripts.evaluate_workflows --paraphrases --require-coverage --output .local/llama-workflows-constrained-normal.json
     .venv/Scripts/python.exe -m scripts.evaluate_workflow_scenarios
     .venv/Scripts/python.exe -m scripts.report_workflow_validation
+    .venv/Scripts/python.exe scripts/measure_figure_tokens.py --model llama3.2:latest --budget 12 --output validation/figure-tokens-llama3.2-12s.json
 
 The --require-coverage flag exits nonzero for any failed interpretation or missing confirmed receipt; generating a report does not override that gate. The evaluator uses disposable fictional workspaces and disables only fixture request throttling. Production throttles and confirmation checks remain enabled.
 

@@ -126,7 +126,7 @@ export async function mountBankConnections(container = currentHost()) {
     const canManage = ["owner", "approver"].includes(S.session?.role);
     const available = data.provider.configured && canManage;
     container.innerHTML = `<div class="detail-section"><h3>Connected banks</h3>
-      <p class="muted">Read-only checking, savings, and money-market accounts. Bank balances are cached snapshots.</p>
+      <p class="muted">Read-only bank, credit card and loan accounts. Balances are cached snapshots, and card and loan terms appear when your bank shares them.</p>
       ${data.provider.environment === "sandbox" ? '<p class="muted">Plaid Sandbox: test institutions and test data.</p>' : ""}
       ${!data.provider.configured ? `<p role="status">${esc(data.provider.reason)}</p>` : ""}
       ${available ? action("Connect a bank", "bank-link", true) : ""}

@@ -182,7 +182,7 @@ def test_assets_are_served_without_exposing_files_outside_web(client):
 
 def test_debt_compare_zero_extra_uses_only_required_payments(client):
     household = read_workspace(client).household
-    response = client.get("/api/debt/compare", params={"extra_payment": 0})
+    response = client.post("/api/debt/compare", json={"extra_payment": 0})
     assert response.status_code == 200
     data = response.json()
     assert data["extra"]["amount"] == "0.00"
@@ -192,13 +192,13 @@ def test_debt_compare_zero_extra_uses_only_required_payments(client):
         assert all(payments[liability.name] == liability.minimum_payment.to_json()
                    for liability in household.liabilities.values())
     # An omitted amount retains the pre-existing suggested extra payment.
-    suggested = client.get("/api/debt/compare").json()
+    suggested = client.post("/api/debt/compare", json={}).json()
     assert suggested["extra"]["amount"] == "500.00"
 
 
 def test_card_utilization_zero_payment_preserves_current_utilization(client):
     household = read_workspace(client).household
-    response = client.get("/api/cards/utilization", params={"card_id": "card_a", "payment": 0})
+    response = client.post("/api/cards/utilization", json={"card_id": "card_a", "payment": 0})
     assert response.status_code == 200
     data = response.json()
     assert data["planned_payment"]["amount"] == "0.00"
@@ -206,6 +206,6 @@ def test_card_utilization_zero_payment_preserves_current_utilization(client):
             == data["reported_utilization_if_paid_at_due_date"])
     assert data["reported_utilization_if_paid_before_close"] == "8.2%"
     # Omitting payment still compares paying the full current card balance.
-    suggested = client.get("/api/cards/utilization", params={"card_id": "card_a"}).json()
+    suggested = client.post("/api/cards/utilization", json={"card_id": "card_a"}).json()
     assert suggested["planned_payment"] == household.cards["card_a"].current_balance.to_json()
     assert suggested["reported_utilization_if_paid_before_close"] == "0.0%"

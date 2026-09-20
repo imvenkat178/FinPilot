@@ -269,6 +269,7 @@ class Transaction:
     linked_tx_id: Optional[str] = None          # refund -> original charge
     user_corrected: bool = False
     balance_already_reflected: bool = False
+    provider_category: str = ""      # the aggregator's own label, kept for review
 
     @property
     def counts_as_income(self) -> bool:
@@ -459,6 +460,9 @@ class Liability:
     hardship_plan: Optional[str] = None
     entity_id: Optional[str] = None
     tax_deductible_interest: bool = False     # TX03: never assumed from the name
+    # False when an aggregator reported the balance but not the rate or required payment.
+    # Debt totals include such a debt; payoff modelling leaves it out until terms are entered.
+    terms_complete: bool = True
     provenance: Provenance = field(default_factory=Provenance)
 
     @property

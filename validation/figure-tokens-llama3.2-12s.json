@@ -1,0 +1,338 @@
+{
+  "checked_at": "2026-09-15T07:11:07+00:00",
+  "provider": "local Ollama",
+  "model": "llama3.2:latest",
+  "budget_seconds": 12.0,
+  "failure_cooldown_seconds": 0,
+  "data": "fictional demo household",
+  "script": "scripts/measure_figure_tokens.py",
+  "summary": {
+    "questions": 10,
+    "first_model_calls": 9,
+    "first_wording_accepted": 5,
+    "first_wording_rejected": 2,
+    "first_rejection_kinds": {
+      "allowance_wording": 1,
+      "typed_figure": 1
+    },
+    "first_model_failed_or_over_budget": 2,
+    "first_no_model_needed": 1,
+    "median_seconds_with_model_call": 7.28,
+    "repeat_cache_hits": 5,
+    "repeat_model_calls": 0,
+    "median_repeat_seconds": 0.0,
+    "after_change_cache_hits": 5,
+    "after_change_accepted": 5,
+    "after_change_answer_changed": 1
+  },
+  "results": [
+    {
+      "question": "How much can I spend this week?",
+      "reference_figures": 7,
+      "first": {
+        "intent": "spending_allowance",
+        "used_model": false,
+        "cache": "miss",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 1,
+        "rejected": [
+          "allowance_wording"
+        ],
+        "rejection_detail": [
+          "The spending-allowance sentence contains a different monetary amount."
+        ],
+        "model_draft": "You can spend about [F1] this week. This amount is after protected reserves have been subtracted from your total allowance. The lowest projected balance before this subtraction is [F3], and it's not possible to spend that amount. The forecast includes [F5] of required bills, which will be deducted from your spendable allowance. Additionally, [F6] of your protected reserves will be excluded from spending. However, there's still some uncertainty in the forecast, as [F7] items are predicted rather than confirmed.",
+        "seconds": 8.97,
+        "answer": "You can spend about $1,350.00 through 2026-09-17. The lowest projected balance is $2,350.00 on 2026-09-12. The forecast includes $850.00 of required bills. $1,000.00 of protected reserves is then excluded from spending. Confidence: bounded. Still to confirm: 1 forecast items are predicted rather than confirmed."
+      }
+    },
+    {
+      "question": "How much money do I have across all my accounts?",
+      "reference_figures": 5,
+      "first": {
+        "intent": "money_overview",
+        "used_model": true,
+        "cache": "miss",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 1,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": "You have a total of [F1] across all your accounts. \n\nYou hold [F2] of this amount in cash, which is currently available for spending. \n\nHowever, you also have [F3] in debt, which reduces your estimated net worth. \n\nAs of [F5], your estimated net worth is [F4].",
+        "seconds": 4.62,
+        "answer": "You have a total of $25,900.00 across all your accounts. \n\nYou hold $10,400.00 of this amount in cash, which is currently available for spending. \n\nHowever, you also have $211,142.18 in debt, which reduces your estimated net worth. \n\nAs of 2026-09-10, your estimated net worth is $410,757.82."
+      },
+      "repeat": {
+        "intent": "money_overview",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.0,
+        "answer": "You have a total of $25,900.00 across all your accounts. \n\nYou hold $10,400.00 of this amount in cash, which is currently available for spending. \n\nHowever, you also have $211,142.18 in debt, which reduces your estimated net worth. \n\nAs of 2026-09-10, your estimated net worth is $410,757.82."
+      },
+      "after_balance_change": {
+        "intent": "money_overview",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.02,
+        "answer": "You have a total of $26,000.00 across all your accounts. \n\nYou hold $10,500.00 of this amount in cash, which is currently available for spending. \n\nHowever, you also have $211,142.18 in debt, which reduces your estimated net worth. \n\nAs of 2026-09-10, your estimated net worth is $410,757.82."
+      }
+    },
+    {
+      "question": "What if I pay another $300 toward debt?",
+      "reference_figures": 5,
+      "first": {
+        "intent": "extra_payment",
+        "used_model": true,
+        "cache": "miss",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 1,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": "If you pay another [F1] toward your debt, it will clear the debt in [F2] months instead of [F3] months. By making this extra payment, you will save [F4] of modelled interest, which would have been paid over [F5] months earlier. Please note that this extra principal will not reduce the next required installment unless the servicer confirms a change.",
+        "seconds": 5.14,
+        "answer": "Scenario only \u2014 nothing is saved or authorized. If you pay another $300.00 toward your debt, it will clear the debt in 138 months instead of 174 months. By making this extra payment, you will save $18,172.21 of modelled interest, which would have been paid over 36 months earlier. Please note that this extra principal will not reduce the next required installment unless the servicer confirms a change."
+      },
+      "repeat": {
+        "intent": "extra_payment",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.02,
+        "answer": "Scenario only \u2014 nothing is saved or authorized. If you pay another $300.00 toward your debt, it will clear the debt in 138 months instead of 174 months. By making this extra payment, you will save $18,172.21 of modelled interest, which would have been paid over 36 months earlier. Please note that this extra principal will not reduce the next required installment unless the servicer confirms a change."
+      },
+      "after_balance_change": {
+        "intent": "extra_payment",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.02,
+        "answer": "Scenario only \u2014 nothing is saved or authorized. If you pay another $300.00 toward your debt, it will clear the debt in 138 months instead of 174 months. By making this extra payment, you will save $18,172.21 of modelled interest, which would have been paid over 36 months earlier. Please note that this extra principal will not reduce the next required installment unless the servicer confirms a change."
+      }
+    },
+    {
+      "question": "How should I split my next paycheck?",
+      "reference_figures": 20,
+      "first": {
+        "intent": "paycheck_split",
+        "used_model": false,
+        "cache": "off",
+        "compose_mode": "template",
+        "compose_reason": "model call failed: local model call failed (ReadTimeout)",
+        "model_calls": 1,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 12.01,
+        "answer": "From your saved plan. Your 2026-09 plan targets $6,000.00 against expected income of $6,000.00.\nPaycheck on 2026-09-01 \u2014 $3,000.00 in, $3,000.00 allocated:\n  $1,800.00 to Mortgage required payment (Due 2026-09-05, before the next deposit on 2026-09-15. Splitting this across both paychecks would leave the due date unfunded.)\n  $150.00 to Utilities (Due 2026-09-08, before the next deposit on 2026-09-15. Splitting this across both paychecks would leave the due date unfunded.)\n  $250.00 to Auto loan required payment (Due 2026-09-10, before the next deposit on 2026-09-15. Splitting this across both paychecks would leave the due date unfunded.)\n  $600.00 to Credit card statement (Due 2026-09-12, before the next deposit on 2026-09-15. Splitting this across both paychecks would leave the due date unfunded.)\n  $200.00 to Cash & debit spending (Funded in your saved priority order, spread across the deposits left in the period.)\nPaycheck on 2026-09-15 \u2014 $3,000.00 in, $3,000.00 allocated:\n  $250.00 to Student loan required payment (Due 2026-09-20 and this is the last deposit before it.)\n  $250.00 to Home & auto insurance (Due 2026-09-22 and this is the last deposit before it.)\n  $500.00 to Cash & debit spending (Funded in your saved priority order, spread across the deposits left in the period.)\n  $700.00 to Emergency reserve (Protected reserve, funded ahead of elastic percentage rules.)\n  $300.00 to Annual bills reserve (Protected reserve, funded ahead of elastic percentage rules.)\n  $500.00 to Brokerage cash contribution (Funded in your saved priority order, spread across the deposits left in the period.)\n  $500.00 to Additional principal on selected debt (Funded in your saved priority order, spread across the deposits left in the period.)\nA deadline that falls before the next paycheck is funded from this one. An even split across paychecks is rejected when it would leave a due date unfunded."
+      }
+    },
+    {
+      "question": "What bills are due in the next 30 days?",
+      "reference_figures": 14,
+      "first": {
+        "intent": "upcoming_bills",
+        "used_model": true,
+        "cache": "miss",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 1,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": "In the next [F3] days, you have [F2] obligations due. \n\nYou have an auto loan payment of [F5] from Everyday Checking (app) due. \nYou also have a card statement of [F7] from Everyday Checking (creditor_autopay) due. \nAdditionally, you have a student loan payment of [F5] from Everyday Checking (app) due. \nYou will also have a home & auto insurance payment of [F5] from Everyday Checking (app) due. \nFurthermore, you have a mortgage payment of [F11] from Everyday Checking (app) due. \nYou will have utilities of [F13] from Everyday Checking (app) due. \nFinally, you have another auto loan payment of [F5] from Everyday Checking (app) due.",
+        "seconds": 10.14,
+        "answer": "In the next 30 days, you have $3,550.00 obligations due. \n\nYou have an auto loan payment of $250.00 from Everyday Checking (app) due. \nYou also have a card statement of $600.00 from Everyday Checking (creditor_autopay) due. \nAdditionally, you have a student loan payment of $250.00 from Everyday Checking (app) due. \nYou will also have a home & auto insurance payment of $250.00 from Everyday Checking (app) due. \nFurthermore, you have a mortgage payment of $1,800.00 from Everyday Checking (app) due. \nYou will have utilities of $150.00 from Everyday Checking (app) due. \nFinally, you have another auto loan payment of $250.00 from Everyday Checking (app) due."
+      },
+      "repeat": {
+        "intent": "upcoming_bills",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.0,
+        "answer": "In the next 30 days, you have $3,550.00 obligations due. \n\nYou have an auto loan payment of $250.00 from Everyday Checking (app) due. \nYou also have a card statement of $600.00 from Everyday Checking (creditor_autopay) due. \nAdditionally, you have a student loan payment of $250.00 from Everyday Checking (app) due. \nYou will also have a home & auto insurance payment of $250.00 from Everyday Checking (app) due. \nFurthermore, you have a mortgage payment of $1,800.00 from Everyday Checking (app) due. \nYou will have utilities of $150.00 from Everyday Checking (app) due. \nFinally, you have another auto loan payment of $250.00 from Everyday Checking (app) due."
+      },
+      "after_balance_change": {
+        "intent": "upcoming_bills",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.0,
+        "answer": "In the next 30 days, you have $3,550.00 obligations due. \n\nYou have an auto loan payment of $250.00 from Everyday Checking (app) due. \nYou also have a card statement of $600.00 from Everyday Checking (creditor_autopay) due. \nAdditionally, you have a student loan payment of $250.00 from Everyday Checking (app) due. \nYou will also have a home & auto insurance payment of $250.00 from Everyday Checking (app) due. \nFurthermore, you have a mortgage payment of $1,800.00 from Everyday Checking (app) due. \nYou will have utilities of $150.00 from Everyday Checking (app) due. \nFinally, you have another auto loan payment of $250.00 from Everyday Checking (app) due."
+      }
+    },
+    {
+      "question": "Which of my cards should I use for an $80 dinner?",
+      "reference_figures": 5,
+      "first": {
+        "intent": "card_choice",
+        "used_model": true,
+        "cache": "miss",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 1,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": "For a dinner, you should use the Everyday Rewards card. This card nets [F2] on this [F3] dining purchase, which is [F5] ahead of the next option.",
+        "seconds": 2.92,
+        "answer": "For a dinner, you should use the Everyday Rewards card. This card nets $3.20 on this $80.00 dining purchase, which is $3.18 ahead of the next option."
+      },
+      "repeat": {
+        "intent": "card_choice",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.02,
+        "answer": "For a dinner, you should use the Everyday Rewards card. This card nets $3.20 on this $80.00 dining purchase, which is $3.18 ahead of the next option."
+      },
+      "after_balance_change": {
+        "intent": "card_choice",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.0,
+        "answer": "For a dinner, you should use the Everyday Rewards card. This card nets $3.20 on this $80.00 dining purchase, which is $3.18 ahead of the next option."
+      }
+    },
+    {
+      "question": "Compare debt payoff strategies with 200 extra monthly",
+      "reference_figures": 13,
+      "first": {
+        "intent": "debt_compare",
+        "used_model": false,
+        "cache": "off",
+        "compose_mode": "template",
+        "compose_reason": "model call failed: local model call failed (ReadTimeout)",
+        "model_calls": 1,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 12.0,
+        "answer": "Scenario only \u2014 nothing is saved or authorized. Under one budget of $1,873.77 ($1,673.77 required, $200.00 extra):\n  Highest rate first: clears in 148 months, $65,942.83 interest, first payoff Everyday Rewards Card in month 4\n  Smallest balance first: clears in 148 months, $66,108.72 interest, first payoff Everyday Rewards Card in month 4, $165.89 more than the lowest-cost plan\n  Equal extra shares: clears in 149 months, $66,431.64 interest, first payoff Everyday Rewards Card in month 10, $488.81 more than the lowest-cost plan\nMinimising remaining borrowing cost is a different objective from reaching the first payoff sooner or reducing the required monthly payment. All three are shown."
+      }
+    },
+    {
+      "question": "Check utilization timing for Everyday Rewards with a 200 payment",
+      "reference_figures": 4,
+      "first": {
+        "intent": "utilization",
+        "used_model": true,
+        "cache": "miss",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 1,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": "To check the utilization timing for Everyday Rewards with a payment, consider the following:\n\nPaying [F1] before the statement closes on day [F2] will result in the issuer reporting about [F3] utilization instead of [F4]. This change in reported utilization does not affect the interest outcome, but rather the figure displayed. Paying the full required statement amount by the payment due date will preserve the grace period in both scenarios. Notably, paying earlier does not forfeit the grace period. The impact of paying on the score is also taken into account, with factors and direction shown.",
+        "seconds": 7.28,
+        "answer": "To check the utilization timing for Everyday Rewards with a payment, consider the following:\n\nPaying $742.18 before the statement closes on day 18 will result in the issuer reporting about 0.0% utilization instead of 8.2%. This change in reported utilization does not affect the interest outcome, but rather the figure displayed. Paying the full required statement amount by the payment due date will preserve the grace period in both scenarios. Notably, paying earlier does not forfeit the grace period. The impact of paying on the score is also taken into account, with factors and direction shown."
+      },
+      "repeat": {
+        "intent": "utilization",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.0,
+        "answer": "To check the utilization timing for Everyday Rewards with a payment, consider the following:\n\nPaying $742.18 before the statement closes on day 18 will result in the issuer reporting about 0.0% utilization instead of 8.2%. This change in reported utilization does not affect the interest outcome, but rather the figure displayed. Paying the full required statement amount by the payment due date will preserve the grace period in both scenarios. Notably, paying earlier does not forfeit the grace period. The impact of paying on the score is also taken into account, with factors and direction shown."
+      },
+      "after_balance_change": {
+        "intent": "utilization",
+        "used_model": true,
+        "cache": "hit",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.0,
+        "answer": "To check the utilization timing for Everyday Rewards with a payment, consider the following:\n\nPaying $742.18 before the statement closes on day 18 will result in the issuer reporting about 0.0% utilization instead of 8.2%. This change in reported utilization does not affect the interest outcome, but rather the figure displayed. Paying the full required statement amount by the payment due date will preserve the grace period in both scenarios. Notably, paying earlier does not forfeit the grace period. The impact of paying on the score is also taken into account, with factors and direction shown."
+      }
+    },
+    {
+      "question": "Compare putting 1000 into savings versus debt for 365 days",
+      "reference_figures": 0,
+      "first": {
+        "intent": "unknown",
+        "used_model": false,
+        "cache": "off",
+        "compose_mode": "clarification",
+        "compose_reason": null,
+        "model_calls": 0,
+        "rejected": [],
+        "rejection_detail": [],
+        "model_draft": null,
+        "seconds": 0.02,
+        "answer": "I haven't identified the calculation you need yet. I can help with account balances and net worth, paycheck planning, upcoming bills, spending limits, debt comparisons, or account connections. Which would you like to look at? For example, ask 'How much can I safely spend this week?'"
+      }
+    },
+    {
+      "question": "How much is protected for emergencies?",
+      "reference_figures": 9,
+      "first": {
+        "intent": "reserves",
+        "used_model": false,
+        "cache": "miss",
+        "compose_mode": "model",
+        "compose_reason": null,
+        "model_calls": 1,
+        "rejected": [
+          "typed_figure"
+        ],
+        "rejection_detail": [
+          "the draft typed a figure instead of using a token: 'ng. \\n\\nYou also have two additional reserves: an'"
+        ],
+        "model_draft": "Here is the rewritten answer:\n\nYou have a total of [F1] protected for emergencies. \n\nYour Everyday Checking account has [F2] available, with [F3] remaining. \n\nYou also have two additional reserves: an Emergency reserve with [F4] available, and an Annual bills reserve with [F7] available, both within the Emergency & Annual Savings account. The Emergency reserve has [F6] remaining, and the Annual bills reserve has [F9] remaining.",
+        "seconds": 6.3,
+        "answer": "Protected reserves total $15,500.00.\n  Checking operating floor: $1,000.00 funded toward $1,000.00, with $0.00 remaining, in Everyday Checking.\n  Emergency reserve: $12,400.00 funded toward $18,000.00, with $5,600.00 remaining, in Emergency & Annual Savings.\n  Annual bills reserve: $2,100.00 funded toward $3,600.00, with $1,500.00 remaining, in Emergency & Annual Savings.\nThese reserves are earmarked within existing account balances."
+      }
+    }
+  ]
+}

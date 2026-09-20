@@ -1,8 +1,10 @@
 """A valid balance must not be relabeled as spendable money by the model."""
 import pytest
+from finpilot.ai.facts import mask, tokenize
 from finpilot.ai.graph import FinanceAgent
 from finpilot.ai.guardrails import check_grounding, spending_allowance_claim_error
 from finpilot.ai.llm import LLMConfig
+from finpilot.ai.router import template_answer
 from finpilot.ai.tools import ToolRegistry
 from finpilot.seed.demo import demo_household
 
@@ -16,6 +18,14 @@ class DraftModel:
         return self.draft
 
 
+def savings_agent(registry, draft):
+    """Model drafts carry figure tokens: figures the reference answer holds become its tokens."""
+    evidence = registry.call('get_spending_allowance', {'account_id': 'acc_savings', 'days': 7})
+    sheet = tokenize(template_answer('spending_allowance', evidence))
+    return FinanceAgent(registry, DraftModel(mask(draft, sheet, keep_unknown=True)), compile_graph=False,
+                        default_account_id='acc_savings')
+
+
 def test_live_llama_regression_cannot_call_protected_savings_spendable():
     registry = ToolRegistry(demo_household())
     evidence = registry.call('get_spending_allowance', {'account_id': 'acc_savings', 'days': 7})
@@ -25,8 +35,7 @@ def test_live_llama_regression_cannot_call_protected_savings_spendable():
              f"That is set by the lowest projected balance of $14,500.00 on {evidence['low_point_date']}, "
              "after $0.00 of required bills and $14,500.00 of protected reserves. Confidence: exact.")
     assert check_grounding(draft, [evidence]).ok  # Same numbers, wrong financial relationship.
-    answer = FinanceAgent(registry, DraftModel(draft), compile_graph=False,
-                          default_account_id='acc_savings').ask('How much can I spend this week?')
+    answer = savings_agent(registry, draft).ask('How much can I spend this week?')
     assert answer.used_model is False
     assert answer.grounding['rejected_for'] == 'spending_allowance_claim'
     assert answer.answer.startswith('You can spend about $0.00')
@@ -35,14 +44,13 @@ def test_live_llama_regression_cannot_call_protected_savings_spendable():
 
 @pytest.mark.parametrize('draft', [
     'You can spend about $0.00. Your lowest projected balance is $14,500.00, and all of it is protected.',
-    'Your spending allowance is USD 0. The $14,500.00 remains protected.',
+    'Your spending allowance is $0.00. The $14,500.00 remains protected.',
     "You've got roughly $0.00. The $14,500.00 remains protected.",
     'You have $0.00 available to spend. Protected reserves are $14,500.00.',
 ])
 def test_correct_model_wording_remains_available(draft):
     registry = ToolRegistry(demo_household())
-    answer = FinanceAgent(registry, DraftModel(draft), compile_graph=False,
-                          default_account_id='acc_savings').ask('How much can I spend this week?')
+    answer = savings_agent(registry, draft).ask('How much can I spend this week?')
     assert answer.used_model is True
     assert answer.answer == draft
 
@@ -74,8 +82,7 @@ def test_additional_spending_sentence_amount_cannot_form_a_range_or_alternative(
     registry = ToolRegistry(demo_household())
     evidence = registry.call('get_spending_allowance', {'account_id': 'acc_savings', 'days': 7})
     assert check_grounding(draft, [evidence]).ok
-    answer = FinanceAgent(registry, DraftModel(draft), compile_graph=False,
-                          default_account_id='acc_savings').ask('How much can I spend this week?')
+    answer = savings_agent(registry, draft).ask('How much can I spend this week?')
     assert answer.used_model is False
     assert answer.grounding['rejected_for'] == 'spending_allowance_claim'
     assert answer.answer.startswith('You can spend about $0.00')

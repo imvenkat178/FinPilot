@@ -59,9 +59,10 @@ ROUTES = {
         WRITE),
     ("PATCH", "/api/transactions/{transaction_id}"): ("Correct a transaction",
         "Corrects a transaction's description, category or kind.", WRITE + (404,)),
-    ("GET", "/api/transactions"): ("List transactions",
-        "Lists transactions newest first, filtered by account, text or category, with `limit` and `offset` paging.",
-        (401, 422)),
+    ("POST", "/api/transactions/search"): ("Search transactions",
+        "Lists transactions newest first, filtered by account, text or category, with `limit` and `offset` paging. "
+        "Filters travel in the JSON body so search text stays out of URLs and logs.",
+        (401, 403, 422)),
     ("GET", "/api/audit"): ("List recent changes",
         "Lists recent workspace change events with the action, revision, actor and time.", READ),
 
@@ -98,21 +99,25 @@ ROUTES = {
         WRITE + (404,)),
     ("POST", "/api/bills/{bill_id}/pay-once"): ("Draft a one-time bill payment",
         "Prepares a payment draft for a bill occurrence. Nothing is submitted.", WRITE + (404,)),
-    ("GET", "/api/debt/compare"): ("Compare debt payoff strategies",
-        "Compares debt payoff strategies, optionally with an extra monthly payment.", (401, 422)),
-    ("GET", "/api/debt/what-if"): ("Model an extra debt payment", "Shows the effect of an extra payment toward debt.",
-        (401, 422)),
-    ("GET", "/api/mortgage/scenarios"): ("Compare mortgage scenarios",
-        "Compares mortgage payoff with an optional lump sum and an optional extra monthly payment.", (401, 422)),
-    ("GET", "/api/mortgage/biweekly"): ("Compare biweekly mortgage payments",
-        "Compares a biweekly payment program with monthly payments, net of an optional annual program fee.", (401, 422)),
+    ("POST", "/api/debt/compare"): ("Compare debt payoff strategies",
+        "Compares debt payoff strategies, optionally with an extra monthly payment sent in the JSON body.", (401, 403, 422)),
+    ("POST", "/api/debt/what-if"): ("Model an extra debt payment",
+        "Shows the effect of an extra payment toward debt. Send the amount in the JSON body.", (401, 403, 422)),
+    ("POST", "/api/mortgage/scenarios"): ("Compare mortgage scenarios",
+        "Compares mortgage payoff with an optional lump sum and an optional extra monthly payment, sent in the JSON body.",
+        (401, 403, 422)),
+    ("POST", "/api/mortgage/biweekly"): ("Compare biweekly mortgage payments",
+        "Compares a biweekly payment program with monthly payments, net of an optional annual program fee sent in the JSON body.",
+        (401, 403, 422)),
     ("POST", "/api/cards/choose"): ("Choose a card for a purchase",
         "Recommends a card for a purchase from rewards, category, merchant, channel, foreign fees and processing fees.",
         (401, 403, 422)),
-    ("GET", "/api/cards/utilization"): ("Check utilization timing",
-        "Checks statement utilization timing for a card, optionally with a planned payment.", (401, 422)),
-    ("GET", "/api/tax/net-benefit"): ("Compare savings with debt paydown",
-        "Compares the after-tax benefit of saving an amount with paying down debt over `horizon_days`.", (401, 422)),
+    ("POST", "/api/cards/utilization"): ("Check utilization timing",
+        "Checks statement utilization timing for a card, optionally with a planned payment sent in the JSON body.",
+        (401, 403, 422)),
+    ("POST", "/api/tax/net-benefit"): ("Compare savings with debt paydown",
+        "Compares the after-tax benefit of saving an amount with paying down debt over `horizon_days`. "
+        "Send both in the JSON body.", (401, 403, 422)),
     ("GET", "/api/tax/profile"): ("Get tax assumptions", "Returns the workspace tax assumptions.", READ),
     ("POST", "/api/execution/build"): ("Build payment drafts",
         "Builds payment drafts from the paycheck allocation for a month or an income event.", WRITE),
@@ -132,8 +137,11 @@ ROUTES = {
 
     # Assistant
     ("POST", "/api/ask"): ("Ask the assistant",
-        "Answers a question or request inside a saved conversation. Numbers come from deterministic calculations; "
-        "requested changes come back as proposals that need confirmation. Rate limited per user and by assistant capacity.",
+        "Answers a question or request inside a saved conversation. Numbers come from deterministic calculations, "
+        "and model wording carries figure tokens that the server fills in and checks. Answers link the household records "
+        "behind them, name the result field behind each figure and carry an evidence confidence level. Unrelated "
+        "requests get a fixed reply without a model call. Requested changes come back as proposals that need "
+        "confirmation. Rate limited per user and by assistant capacity.",
         (401, 403, 404, 409, 422, 429)),
     ("GET", "/api/ask/history"): ("List saved answers",
         "Lists the signed-in user's recent saved answers in this workspace.", (401, 422)),
@@ -190,8 +198,9 @@ ROUTES = {
     ("POST", "/api/documents"): ("Upload a document",
         "Adds a PDF, TXT or Markdown file of up to 2 MB to the private library. PDFs need selectable text.",
         (401, 403, 409, 413, 422, 429)),
-    ("GET", "/api/documents/search"): ("Search documents",
-        "Finds matching passages in private documents, optionally limited to selected documents.", (401, 422)),
+    ("POST", "/api/documents/search"): ("Search documents",
+        "Finds matching passages in private documents, optionally limited to selected documents. "
+        "Send the question in the JSON body.", (401, 403, 422)),
     ("GET", "/api/documents/{document_id}"): ("Get a document", "Returns a document with its extracted excerpts.",
         (401, 404)),
     ("DELETE", "/api/documents/{document_id}"): ("Delete a document",

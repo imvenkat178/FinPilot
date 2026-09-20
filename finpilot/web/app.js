@@ -357,6 +357,9 @@ document.addEventListener("input", (e) => {
     $("account-results").innerHTML = accountResults(list);
   }
 });
+// Calculator inputs travel in request bodies so amounts never appear in URLs or logs.
+// An empty optional field is left out, so the server applies its default.
+const optionalInput = (value) => (value === "" || value == null ? undefined : value);
 document.addEventListener("submit", async (e) => {
   if(e.target.dataset.workflowForm) { e.preventDefault(); await handleWorkflowSubmit(e.target); return; }
   const form = e.target;
@@ -370,20 +373,23 @@ document.addEventListener("submit", async (e) => {
   await busy(button, async () => {
     try {
       if (form.id === "debt-form") {
-        const r = await api(
-          `/api/debt/compare?extra_payment=${encodeURIComponent(values.extra)}`,
-        );
+        const r = await api("/api/debt/compare", {
+          method: "POST",
+          body: { extra_payment: optionalInput(values.extra) },
+        });
         S.cache.set("debt", r);
         if ($("debt-result")) $("debt-result").innerHTML = debtComparison(r);
       } else if (form.id === "tax-form") {
-        const r = await api(
-          `/api/tax/net-benefit?amount=${encodeURIComponent(values.amount)}&horizon_days=${encodeURIComponent(values.days)}`,
-        );
+        const r = await api("/api/tax/net-benefit", {
+          method: "POST",
+          body: { amount: values.amount, horizon_days: optionalInput(values.days) },
+        });
         if ($("tax-result")) $("tax-result").innerHTML = calculationResult(r);
       } else if (form.id === "utilization-form") {
-        const r = await api(
-          `/api/cards/utilization?card_id=${encodeURIComponent(values.card_id)}&payment=${encodeURIComponent(values.payment)}`,
-        );
+        const r = await api("/api/cards/utilization", {
+          method: "POST",
+          body: { card_id: values.card_id, payment: optionalInput(values.payment) },
+        });
         if ($("utilization-result"))
           $("utilization-result").innerHTML = calculationResult(r);
       } else if (form.id === "card-form") {
@@ -393,9 +399,10 @@ document.addEventListener("submit", async (e) => {
         });
         if ($("card-result")) $("card-result").innerHTML = calculationResult(r);
       } else if (form.id === "mortgage-form") {
-        const r = await api(
-          `/api/mortgage/scenarios?extra_monthly=${encodeURIComponent(values.extra)}&lump_sum=${encodeURIComponent(values.lump)}`,
-        );
+        const r = await api("/api/mortgage/scenarios", {
+          method: "POST",
+          body: { extra_monthly: optionalInput(values.extra), lump_sum: optionalInput(values.lump) },
+        });
         if ($("mortgage-result"))
           $("mortgage-result").innerHTML = calculationResult(r);
       } else if (form.id === "policy-form") {

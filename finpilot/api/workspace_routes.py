@@ -1,6 +1,7 @@
 """Workspace commands and bounded, tenant-scoped read projections."""
 from datetime import timezone
 from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func
 from ..persistence.database import AuditRow, TransactionRow
 from ..services.workspace import WorkspaceService
@@ -73,22 +74,30 @@ def update_transaction(transaction_id: str, payload: dict, request: Request, p: 
     return {**result, "revision": ctx.revision}
 
 
-@router.get("/transactions")
-def transactions(p: P, r: R, account_id: str | None = None,
-                 q: str = Query("", max_length=200), category: str | None = Query(None, max_length=100),
-                 limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=1000000)):
+# Search filters travel in the JSON body so search text never appears in URLs or request logs.
+class TransactionSearch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account_id: str | None = Field(None, max_length=200)
+    q: str = Field("", max_length=200)
+    category: str | None = Field(None, max_length=100)
+    limit: int = Field(50, ge=1, le=200)
+    offset: int = Field(0, ge=0, le=1000000)
+
+
+@router.post("/transactions/search")
+def transactions(body: TransactionSearch, p: P, r: R):
     filters = [TransactionRow.household_id == p.household_id]
-    if account_id:
-        filters.append(TransactionRow.account_id == account_id)
-    if q:
-        filters.append(TransactionRow.description.icontains(q, autoescape=True))
-    if category:
-        filters.append(TransactionRow.category == category)
+    if body.account_id:
+        filters.append(TransactionRow.account_id == body.account_id)
+    if body.q:
+        filters.append(TransactionRow.description.icontains(body.q, autoescape=True))
+    if body.category:
+        filters.append(TransactionRow.category == body.category)
     with r.db.sessions() as session:
         total = session.scalar(select(func.count()).select_from(TransactionRow).where(*filters))
         rows = session.execute(select(TransactionRow).where(*filters).order_by(
-            TransactionRow.posted_on.desc(), TransactionRow.id.desc()).offset(offset).limit(limit)).scalars()
-        return {"transactions": [row.payload for row in rows], "total": total, "limit": limit, "offset": offset}
+            TransactionRow.posted_on.desc(), TransactionRow.id.desc()).offset(body.offset).limit(body.limit)).scalars()
+        return {"transactions": [row.payload for row in rows], "total": total, "limit": body.limit, "offset": body.offset}
 
 
 @router.get("/audit")

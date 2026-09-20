@@ -37,6 +37,32 @@ assert.deepEqual(calls.find(c=>c.path==='/api/ask').body.context,{account_id:'sa
 assert.equal(calls.find(c=>c.path==='/api/ask').body.conversation_id,null);
 await ask('And next month?');
 assert.equal(calls.filter(c=>c.path==='/api/ask').at(-1).body.conversation_id,'chat-new','Follow-up uses the same saved conversation');
+resetAssistant();
+S.workspace.transactions=[{id:'tx-loaded',account_id:'savings'}];
+nextAnswer=answer({question:'How much can I spend?',answer:'You can spend $1,350.00.',record_refs:[
+  {kind:'account',id:'savings',label:'Savings <reserve>',account_id:'savings'},
+  {kind:'transaction',id:'tx-loaded',label:'2026-09-10 - Coffee - $4.85',account_id:'savings'},
+  {kind:'transaction',id:'tx-older',label:'2026-01-02 - Rent - $1,800.00',account_id:'savings'},
+  {kind:'bill',id:'bill-rent',label:'Rent',account_id:'savings'},
+  {kind:'policy',id:'pol-save',label:'Save monthly',account_id:'savings'},
+  {kind:'reserve',id:'res-trip',label:'Trip',account_id:'savings'}],
+  evidence_confidence:{level:'medium',score:75,reasons:['Data for Savings is stale <now>.']},
+  figures:[{token:'F1',text:'$1,350.00',sources:['get_spending_allowance.amount']},{token:'F2',text:'two',sources:[]}]});
+await ask('How much can I spend?');
+{
+  const html=elements['chat-log'].innerHTML;
+  assert.ok(html.includes('data-level="medium">Medium confidence</span>'),'Evidence confidence replaces the calculation label');
+  assert.ok(html.includes('RECORD SOURCES'));
+  assert.ok(html.includes('href="#accounts/savings"'),'Accounts link to the account page');
+  assert.ok(html.includes('data-manage="transaction:tx-loaded"'),'Loaded transactions open their record');
+  assert.ok(html.includes('data-manage="history:savings"'),'Other transactions open the account history');
+  assert.ok(html.includes('data-detail="bill:bill-rent"')&&html.includes('data-detail="rule:pol-save"')&&html.includes('data-detail="reserve:res-trip"'));
+  assert.ok(html.includes('Savings &lt;reserve&gt;')&&!html.includes('Savings <reserve>'),'Record labels are escaped');
+  assert.ok(html.includes('WHY MEDIUM CONFIDENCE')&&html.includes('stale &lt;now&gt;'));
+  assert.ok(html.includes('WHERE EACH FIGURE COMES FROM')&&html.includes('Spending allowance: amount'));
+  assert.ok(!html.includes('<strong>two</strong>'),'Figures without a source field are not listed');
+}
+delete S.workspace.transactions;
 resetAssistant();nextAnswer=answer({used_model:false,model_status:{reachable:false},trace:[{node:'compose',mode:'template',reason:'model call failed: private-debug-string'},{node:'verify',result:'accepted'}]});await ask('Explain my forecast');
 assert.match(elements['chat-log'].innerHTML,/response-ai-label">CALC/);
 assert.ok(elements['chat-log'].innerHTML.includes('Model unavailable for this answer'));
@@ -92,4 +118,4 @@ assert.ok(elements['chat-log'].innerHTML.includes('role="alert"'));
 assert.ok(elements['chat-log'].innerHTML.includes('Assistant unavailable &lt;now&gt;'));
 assert.ok(elements['chat-log'].innerHTML.includes('data-ask="Retry this &lt;question&gt;"'));
 assert.equal(elements['chat-send'].disabled,false);
-console.log('Assistant UI: AI/CALC attribution, latest model status, accurate rejection reasons, scoped request, saved history, reset race, saved conversation resume/delete, document selection/citations, memory disclosure and error retry pass.');
+console.log('Assistant UI: AI/CALC attribution, latest model status, accurate rejection reasons, scoped request, saved history, reset race, saved conversation resume/delete, document selection/citations, memory disclosure, record links, evidence confidence and error retry pass.');

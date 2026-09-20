@@ -1,5 +1,6 @@
 """Session-authenticated private source library endpoints."""
-from fastapi import APIRouter, File, Query, UploadFile
+from fastapi import APIRouter, File, UploadFile
+from pydantic import BaseModel, ConfigDict, Field
 from ..services.documents import DocumentService, MAX_BYTES
 from .dependencies import P, R
 
@@ -21,10 +22,17 @@ def upload_document(p: P, r: R, file: UploadFile = File(...)):
     return DocumentService(r.db).ingest_file(p, file.filename or "", content)
 
 
-@router.get("/search")
-def search_documents(p: P, r: R, q: str = Query(min_length=1, max_length=4000),
-                     document_id: list[str] | None = Query(default=None), limit: int = Query(6, ge=1, le=8)):
-    return {"sources": DocumentService(r.db).retrieve(p, q, document_id, limit)}
+# The question travels in the JSON body so it never appears in URLs or request logs.
+class DocumentSearch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    q: str = Field(min_length=1, max_length=4000)
+    document_id: list[str] | None = Field(None, max_length=100)
+    limit: int = Field(6, ge=1, le=8)
+
+
+@router.post("/search")
+def search_documents(body: DocumentSearch, p: P, r: R):
+    return {"sources": DocumentService(r.db).retrieve(p, body.q, body.document_id, body.limit)}
 
 
 @router.get("/{document_id}")

@@ -23,6 +23,7 @@ class LedgerEntry:
     amount: Money            # signed
     kind: str
     confirmed: bool = True
+    record_id: Optional[str] = None   # the bill, income source or pending transaction behind the entry
 
     def to_json(self) -> dict:
         return {"date": self.date.isoformat(), "account_id": self.account_id,
@@ -124,7 +125,7 @@ class LedgerEngine:
                 out.append(LedgerEntry(d, account_id,
                                        src.name if src else "Income",
                                        ev.effective_amount, "income",
-                                       confirmed=ev.is_received))
+                                       confirmed=ev.is_received, record_id=ev.source_id))
 
         # bills funded from this account
         for b in self.hh.bills.values():
@@ -138,7 +139,7 @@ class LedgerEngine:
                 label = f"{b.name} (overdue {d.isoformat()})" if d < start else b.name
                 out.append(LedgerEntry(max(d, start), account_id, label, -remaining,
                                        "bill" if b.required else "optional_bill",
-                                       confirmed=b.amount_confirmed))
+                                       confirmed=b.amount_confirmed, record_id=b.id))
 
         # pending transactions not yet reflected in available
         for tx in self.hh.transactions:
@@ -146,7 +147,7 @@ class LedgerEngine:
                     and not tx.balance_already_reflected and start <= tx.date <= end:
                 out.append(LedgerEntry(tx.date, account_id,
                                        tx.description or tx.merchant,
-                                       tx.amount, "pending", confirmed=False))
+                                       tx.amount, "pending", confirmed=False, record_id=tx.id))
         return sorted(out, key=lambda e: (e.date, e.label))
 
     def forecast(self, account_id: str, start: Optional[date] = None,

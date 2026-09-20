@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .dependencies import P, R, revision
-from ..integrations.plaid import PlaidClient, PlaidError, apply_accounts, apply_transactions
+from ..integrations.plaid import PlaidClient, PlaidError, apply_accounts, apply_liabilities, apply_transactions
 from ..persistence.database import BankConnectionRow, utcnow
 from ..runtime import RevisionConflict
 from ..models import Verification
@@ -101,6 +101,7 @@ def exchange(body: ExchangeBody, request: Request, r: R, p: P):
                 if existing:
                     return {"connection": public_connection(existing), "revision": r.read(p).revision}
             accounts, institution_id, institution_name = client.account_snapshot(access_token)
+            liabilities = client.fetch_liabilities(access_token, accounts)
             updates = client.fetch_updates(access_token, "")
             now = utcnow()
             row = BankConnectionRow(id="bank_" + uuid.uuid4().hex,
@@ -121,6 +122,7 @@ def exchange(body: ExchangeBody, request: Request, r: R, p: P):
                 else:
                     ctx.db_session.add(row)
                     apply_accounts(ctx.household, row, accounts, now)
+                    apply_liabilities(ctx.household, row, accounts, liabilities, now)
                     imported = apply_transactions(ctx.household, row, updates["changes"])
             request.state.revision = ctx.revision
             return {"connection": public_connection(row), "imported": imported, "revision": ctx.revision}

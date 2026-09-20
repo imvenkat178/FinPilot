@@ -23,6 +23,11 @@ const get = async (path) => {
   assert.equal(r.status, 200, path);
   return r.json();
 };
+const post = async (path, body) => {
+  const r = await fetch(origin + path,{method:"POST",headers:{Cookie:cookie,"Content-Type":"application/json","X-CSRF-Token":S.session.csrf_token},body:JSON.stringify(body)});
+  assert.equal(r.status, 200, path);
+  return r.json();
+};
 [S.data, S.workspace] = await Promise.all([
   get("/api/dashboard"),
   get("/api/workspace"),
@@ -129,8 +134,8 @@ assert.ok(
   "Activity resolves account identity",
 );
 const [tax, mortgage] = await Promise.all([
-  get("/api/tax/net-benefit?amount=1000"),
-  get("/api/mortgage/scenarios?extra_monthly=100&lump_sum=1000"),
+  post("/api/tax/net-benefit", {amount: "1000"}),
+  post("/api/mortgage/scenarios", {extra_monthly: "100", lump_sum: "1000"}),
 ]);
 assert.ok(calculationResult(tax).includes("<table>"));
 assert.ok(

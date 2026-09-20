@@ -167,8 +167,7 @@ async function transactionHistory(accountId = historyAccount, offset = 0, query 
   historyQuery = query;
   show('Transaction history',empty('Loading transactions…'));
   const generation = viewGeneration, loading = $('detail-body').innerHTML;
-  const params = new URLSearchParams({account_id:accountId,limit:'50',offset:String(historyOffset),q:query});
-  const data = await api('/api/transactions?'+params);
+  const data = await api('/api/transactions/search',{method:'POST',body:{account_id:accountId,limit:50,offset:historyOffset,q:query}});
   if (generation !== viewGeneration || !$('detail-dialog').open || $('detail-body').innerHTML !== loading) return;
   transactionRows = data.transactions || [];
   const total = data.total || 0;

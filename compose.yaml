@@ -5,6 +5,9 @@ x-finpilot: &finpilot
     - .env
   environment:
     FINPILOT_DATABASE_URL: ${FINPILOT_DATABASE_URL:?Set FINPILOT_DATABASE_URL in .env}
+    # Uvicorn trusts forwarded client addresses only from these peers; the default is 127.0.0.1.
+    # Behind an ingress on another address, throttles key on the proxy for every user (G1.2).
+    FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
   security_opt:
     - no-new-privileges:true
   cap_drop:

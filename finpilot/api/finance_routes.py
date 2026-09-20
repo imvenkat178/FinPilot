@@ -132,25 +132,46 @@ def pay_bill_once(bill_id: str, request: Request, p: P, r: R, occurrence_date: d
     return result
 
 
-@router.get("/debt/compare")
-def debt_compare(p: P, r: R, extra_payment: Optional[Decimal] = Query(None, ge=0, le=1000000000)):
-    return r.read(p).registry.compare_debt_strategies(extra_payment=extra_payment)
+# Calculator amounts travel in JSON bodies, never in URLs: proxy and platform logs record URLs.
+class DebtCompareInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    extra_payment: Optional[Decimal] = Field(None, ge=0, le=1000000000, allow_inf_nan=False)
 
 
-@router.get("/debt/what-if")
-def debt_what_if(p: P, r: R, amount: Decimal = Query(..., gt=0, le=1000000000)):
-    return r.read(p).registry.what_if_extra_payment(amount=amount)
+@router.post("/debt/compare")
+def debt_compare(body: DebtCompareInput, p: P, r: R):
+    return r.read(p).registry.compare_debt_strategies(extra_payment=body.extra_payment)
 
 
-@router.get("/mortgage/scenarios")
-def mortgage(p: P, r: R, lump_sum: Optional[Decimal] = Query(None, ge=0, le=1000000000),
-             extra_monthly: Optional[Decimal] = Query(None, ge=0, le=1000000000)):
-    return r.read(p).registry.get_mortgage_scenarios(lump_sum=lump_sum, extra_monthly=extra_monthly)
+class DebtWhatIfInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: Decimal = Field(gt=0, le=1000000000, allow_inf_nan=False)
 
 
-@router.get("/mortgage/biweekly")
-def biweekly(p: P, r: R, program_fee_per_year: Optional[Decimal] = Query(None, ge=0, le=1000000)):
-    return r.read(p).registry.compare_biweekly_mortgage(program_fee_per_year=program_fee_per_year)
+@router.post("/debt/what-if")
+def debt_what_if(body: DebtWhatIfInput, p: P, r: R):
+    return r.read(p).registry.what_if_extra_payment(amount=body.amount)
+
+
+class MortgageScenarioInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lump_sum: Optional[Decimal] = Field(None, ge=0, le=1000000000, allow_inf_nan=False)
+    extra_monthly: Optional[Decimal] = Field(None, ge=0, le=1000000000, allow_inf_nan=False)
+
+
+@router.post("/mortgage/scenarios")
+def mortgage(body: MortgageScenarioInput, p: P, r: R):
+    return r.read(p).registry.get_mortgage_scenarios(lump_sum=body.lump_sum, extra_monthly=body.extra_monthly)
+
+
+class BiweeklyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    program_fee_per_year: Optional[Decimal] = Field(None, ge=0, le=1000000, allow_inf_nan=False)
+
+
+@router.post("/mortgage/biweekly")
+def biweekly(body: BiweeklyInput, p: P, r: R):
+    return r.read(p).registry.compare_biweekly_mortgage(program_fee_per_year=body.program_fee_per_year)
 
 
 class CardQuery(BaseModel):
@@ -169,16 +190,26 @@ def choose_card(body: CardQuery, p: P, r: R):
     return r.read(p).registry.choose_card(**body.model_dump())
 
 
-@router.get("/cards/utilization")
-def card_utilization(p: P, r: R, card_id: Optional[str] = None,
-                     payment: Optional[Decimal] = Query(None, ge=0, le=1000000000)):
-    return r.read(p).registry.check_utilization_timing(card_id=card_id, payment=payment)
+class UtilizationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    card_id: Optional[str] = Field(None, max_length=200)
+    payment: Optional[Decimal] = Field(None, ge=0, le=1000000000, allow_inf_nan=False)
 
 
-@router.get("/tax/net-benefit")
-def net_benefit(p: P, r: R, amount: Decimal = Query(..., gt=0, le=1000000000),
-                horizon_days: int = Query(365, ge=1, le=3650)):
-    return r.read(p).registry.compare_savings_vs_debt(amount=amount, horizon_days=horizon_days)
+@router.post("/cards/utilization")
+def card_utilization(body: UtilizationInput, p: P, r: R):
+    return r.read(p).registry.check_utilization_timing(card_id=body.card_id, payment=body.payment)
+
+
+class NetBenefitInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: Decimal = Field(gt=0, le=1000000000, allow_inf_nan=False)
+    horizon_days: int = Field(365, ge=1, le=3650)
+
+
+@router.post("/tax/net-benefit")
+def net_benefit(body: NetBenefitInput, p: P, r: R):
+    return r.read(p).registry.compare_savings_vs_debt(amount=body.amount, horizon_days=body.horizon_days)
 
 
 @router.get("/tax/profile")

@@ -20,6 +20,7 @@ from .persistence.database import (Database, HouseholdRow, MembershipRow, AuditR
 from .services.auth import AuthService, AuthError
 from .ai.llm import LocalLLM, LLMConfig
 from .ai.graph import FinanceAgent
+from .ai.wording_cache import WordingCache
 from .ai.tools import ToolRegistry
 from .execution.engine import ExecutionEngine, SimulatedProvider
 from .api.workspace import _encode, workspace_data
@@ -72,6 +73,8 @@ class Runtime:
         self._guard = threading.RLock()
         self._locks = [threading.RLock() for _ in range(128)]
         self._cache = OrderedDict()
+        # Verified model wording and validated plans, never financial results.
+        self.wording_cache = WordingCache()
         self._bootstrap_cache = OrderedDict()
         self._ready = False
         self._model_started = False

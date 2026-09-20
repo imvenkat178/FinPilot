@@ -863,37 +863,23 @@
       }
     },
     "/api/debt/compare": {
-      "get": {
+      "post": {
         "tags": [
           "Financial workspace"
         ],
         "summary": "Compare debt payoff strategies",
-        "description": "Compares debt payoff strategies, optionally with an extra monthly payment.",
-        "operationId": "debt_compare_api_debt_compare_get",
-        "parameters": [
-          {
-            "name": "extra_payment",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 1000000000.0,
-                  "minimum": 0.0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Extra Payment"
+        "description": "Compares debt payoff strategies, optionally with an extra monthly payment sent in the JSON body.",
+        "operationId": "debt_compare_api_debt_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebtCompareInput"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -905,6 +891,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -913,34 +902,23 @@
       }
     },
     "/api/debt/what-if": {
-      "get": {
+      "post": {
         "tags": [
           "Financial workspace"
         ],
         "summary": "Model an extra debt payment",
-        "description": "Shows the effect of an extra payment toward debt.",
-        "operationId": "debt_what_if_api_debt_what_if_get",
-        "parameters": [
-          {
-            "name": "amount",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 1000000000.0,
-                  "exclusiveMinimum": 0.0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-                }
-              ],
-              "title": "Amount"
+        "description": "Shows the effect of an extra payment toward debt. Send the amount in the JSON body.",
+        "operationId": "debt_what_if_api_debt_what_if_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebtWhatIfInput"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -952,6 +930,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -960,59 +941,23 @@
       }
     },
     "/api/mortgage/scenarios": {
-      "get": {
+      "post": {
         "tags": [
           "Financial workspace"
         ],
         "summary": "Compare mortgage scenarios",
-        "description": "Compares mortgage payoff with an optional lump sum and an optional extra monthly payment.",
-        "operationId": "mortgage_api_mortgage_scenarios_get",
-        "parameters": [
-          {
-            "name": "lump_sum",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 1000000000.0,
-                  "minimum": 0.0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Lump Sum"
+        "description": "Compares mortgage payoff with an optional lump sum and an optional extra monthly payment, sent in the JSON body.",
+        "operationId": "mortgage_api_mortgage_scenarios_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MortgageScenarioInput"
+              }
             }
           },
-          {
-            "name": "extra_monthly",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 1000000000.0,
-                  "minimum": 0.0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Extra Monthly"
-            }
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1024,6 +969,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -1032,37 +980,23 @@
       }
     },
     "/api/mortgage/biweekly": {
-      "get": {
+      "post": {
         "tags": [
           "Financial workspace"
         ],
         "summary": "Compare biweekly mortgage payments",
-        "description": "Compares a biweekly payment program with monthly payments, net of an optional annual program fee.",
-        "operationId": "biweekly_api_mortgage_biweekly_get",
-        "parameters": [
-          {
-            "name": "program_fee_per_year",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 1000000.0,
-                  "minimum": 0.0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Program Fee Per Year"
+        "description": "Compares a biweekly payment program with monthly payments, net of an optional annual program fee sent in the JSON body.",
+        "operationId": "biweekly_api_mortgage_biweekly_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BiweeklyInput"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1074,6 +1008,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -1121,53 +1058,23 @@
       }
     },
     "/api/cards/utilization": {
-      "get": {
+      "post": {
         "tags": [
           "Financial workspace"
         ],
         "summary": "Check utilization timing",
-        "description": "Checks statement utilization timing for a card, optionally with a planned payment.",
-        "operationId": "card_utilization_api_cards_utilization_get",
-        "parameters": [
-          {
-            "name": "card_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Card Id"
+        "description": "Checks statement utilization timing for a card, optionally with a planned payment sent in the JSON body.",
+        "operationId": "card_utilization_api_cards_utilization_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UtilizationInput"
+              }
             }
           },
-          {
-            "name": "payment",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 1000000000.0,
-                  "minimum": 0.0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Payment"
-            }
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1179,6 +1086,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -1187,46 +1097,23 @@
       }
     },
     "/api/tax/net-benefit": {
-      "get": {
+      "post": {
         "tags": [
           "Financial workspace"
         ],
         "summary": "Compare savings with debt paydown",
-        "description": "Compares the after-tax benefit of saving an amount with paying down debt over `horizon_days`.",
-        "operationId": "net_benefit_api_tax_net_benefit_get",
-        "parameters": [
-          {
-            "name": "amount",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "number",
-                  "maximum": 1000000000.0,
-                  "exclusiveMinimum": 0.0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-                }
-              ],
-              "title": "Amount"
+        "description": "Compares the after-tax benefit of saving an amount with paying down debt over `horizon_days`. Send both in the JSON body.",
+        "operationId": "net_benefit_api_tax_net_benefit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetBenefitInput"
+              }
             }
           },
-          {
-            "name": "horizon_days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 3650,
-              "minimum": 1,
-              "default": 365,
-              "title": "Horizon Days"
-            }
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1238,6 +1125,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -1952,84 +1842,24 @@
         }
       }
     },
-    "/api/transactions": {
-      "get": {
+    "/api/transactions/search": {
+      "post": {
         "tags": [
           "Workspace data"
         ],
-        "summary": "List transactions",
-        "description": "Lists transactions newest first, filtered by account, text or category, with `limit` and `offset` paging.",
-        "operationId": "transactions_api_transactions_get",
-        "parameters": [
-          {
-            "name": "account_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Account Id"
+        "summary": "Search transactions",
+        "description": "Lists transactions newest first, filtered by account, text or category, with `limit` and `offset` paging. Filters travel in the JSON body so search text stays out of URLs and logs.",
+        "operationId": "transactions_api_transactions_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionSearch"
+              }
             }
           },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 200,
-              "default": "",
-              "title": "Q"
-            }
-          },
-          {
-            "name": "category",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "maxLength": 100
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Category"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 200,
-              "minimum": 1,
-              "default": 50,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 1000000,
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2041,6 +1871,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -2101,7 +1934,7 @@
           "Assistant"
         ],
         "summary": "Ask the assistant",
-        "description": "Answers a question or request inside a saved conversation. Numbers come from deterministic calculations; requested changes come back as proposals that need confirmation. Rate limited per user and by assistant capacity.",
+        "description": "Answers a question or request inside a saved conversation. Numbers come from deterministic calculations, and model wording carries figure tokens that the server fills in and checks. Answers link the household records behind them, name the result field behind each figure and carry an evidence confidence level. Unrelated requests get a fixed reply without a model call. Requested changes come back as proposals that need confirmation. Rate limited per user and by assistant capacity.",
         "operationId": "ask_api_ask_post",
         "requestBody": {
           "content": {
@@ -2693,57 +2526,23 @@
       }
     },
     "/api/documents/search": {
-      "get": {
+      "post": {
         "tags": [
           "Documents"
         ],
         "summary": "Search documents",
-        "description": "Finds matching passages in private documents, optionally limited to selected documents.",
-        "operationId": "search_documents_api_documents_search_get",
-        "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4000,
-              "title": "Q"
+        "description": "Finds matching passages in private documents, optionally limited to selected documents. Send the question in the JSON body.",
+        "operationId": "search_documents_api_documents_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentSearch"
+              }
             }
           },
-          {
-            "name": "document_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Document Id"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 8,
-              "minimum": 1,
-              "default": 6,
-              "title": "Limit"
-            }
-          }
-        ],
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2755,6 +2554,9 @@
           },
           "401": {
             "description": "Not signed in, the session expired, or the MCP read token is missing, expired or revoked."
+          },
+          "403": {
+            "description": "Cross-site request, failed CSRF check, or the role or workspace type does not allow this action."
           },
           "422": {
             "description": "The request failed validation."
@@ -3818,6 +3620,30 @@
         "title": "AuthorizationMode",
         "description": "Section 21, table 14."
       },
+      "BiweeklyInput": {
+        "properties": {
+          "program_fee_per_year": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Program Fee Per Year"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BiweeklyInput"
+      },
       "Body_csv_preview_api_assistant_csv_preview_post": {
         "properties": {
           "conversation_id": {
@@ -4015,6 +3841,92 @@
         ],
         "title": "Credentials"
       },
+      "DebtCompareInput": {
+        "properties": {
+          "extra_payment": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Payment"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DebtCompareInput"
+      },
+      "DebtWhatIfInput": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Amount"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "title": "DebtWhatIfInput"
+      },
+      "DocumentSearch": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Q"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 6
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "q"
+        ],
+        "title": "DocumentSearch"
+      },
       "EditIn": {
         "properties": {
           "version": {
@@ -4122,6 +4034,78 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ImportBody"
+      },
+      "MortgageScenarioInput": {
+        "properties": {
+          "lump_sum": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lump Sum"
+          },
+          "extra_monthly": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Monthly"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MortgageScenarioInput"
+      },
+      "NetBenefitInput": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Amount"
+          },
+          "horizon_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Horizon Days",
+            "default": 365
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "title": "NetBenefitInput"
       },
       "OperationIn": {
         "properties": {
@@ -4249,6 +4233,93 @@
           "auto"
         ],
         "title": "ToolChoice"
+      },
+      "TransactionSearch": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Q",
+            "default": ""
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TransactionSearch"
+      },
+      "UtilizationInput": {
+        "properties": {
+          "card_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Id"
+          },
+          "payment": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "UtilizationInput"
       },
       "ValidationError": {
         "properties": {

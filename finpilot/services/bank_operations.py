@@ -1,7 +1,7 @@
 """Bank commands shared by forms and reviewed chat execution."""
 from sqlalchemy import select
 from ..persistence.database import BankConnectionRow, utcnow
-from ..integrations.plaid import apply_accounts, apply_transactions
+from ..integrations.plaid import apply_accounts, apply_liabilities, apply_transactions
 from ..runtime import RevisionConflict
 from ..models import Verification
 from ..services.auth import AuthError
@@ -27,6 +27,7 @@ def sync(r,p,client,connection_id,expected=None):
         version,cursor=before.version,before.cursor
         token=client.decrypt(before.encrypted_access_token)
     accounts,institution_id,institution_name=client.account_snapshot(token)
+    liabilities=client.fetch_liabilities(token,accounts)
     updates=client.fetch_updates(token,cursor)
     at=utcnow()
     with r.transaction(p,"bank.sync",expected) as ctx:
@@ -36,6 +37,7 @@ def sync(r,p,client,connection_id,expected=None):
             raise RevisionConflict("Another bank update finished first. Refresh and retry.")
         row.institution_id,row.institution_name=institution_id,institution_name
         apply_accounts(ctx.household,row,accounts,at)
+        apply_liabilities(ctx.household,row,accounts,liabilities,at)
         imported=apply_transactions(ctx.household,row,updates["changes"])
         row.cursor,row.version,row.last_synced_at=updates["cursor"],version+1,at
     return row,imported,ctx.revision
@@ -65,4 +67,8 @@ def disconnect(r,p,client,connection_id,expected=None,expected_version=None):
                 account.connection_healthy=False
                 account.connection_issue="Bank connection disconnected; saved records are retained."
                 account.provenance.verification=Verification.STALE
+        linked=set((row.account_mapping or {}).values())
+        for liability in ctx.household.liabilities.values():
+            if liability.account_id in linked:
+                liability.provenance.verification=Verification.STALE
     return row,ctx.revision

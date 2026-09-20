@@ -59,10 +59,10 @@ For hosting, use the nonroot Docker image, PostgreSQL, Alembic migrations, and H
 | Assistant | Dedicated AI workspace and contextual drawer, shared history, 80 typed workflow controls, compound reads, reviewed edits, receipts and local-model interpretation. |
 | Documents | Private PDF/TXT/Markdown library, conversation source selection, matching excerpts and clickable citations. |
 | MCP | Import approved source data into the library; issue and revoke scoped read access for compatible MCP clients. |
-| Bank linking | Configurable Plaid Link for supported US checking, savings and money-market accounts; encrypted tokens, cursor sync and disconnect. |
+| Bank linking | Configurable Plaid Link for US checking, savings, money-market, credit card and loan accounts; card and loan terms from Plaid Liabilities, bank categories mapped to FinPilot categories, encrypted tokens, cursor sync and disconnect. |
 | Sample execution | Reviewed, explicitly confirmed payment simulation, current preflight checks, independent payment legs, idempotency, recovery and audit records. |
 
-Bank linking stays unavailable until the operator configures provider credentials and a token-encryption key. It imports cached bank snapshots, not guaranteed realtime balances. The adapter has mocked integration tests; live bank linking has not been exercised here. Credit/loan terms can be entered manually. Live money movement is not implemented: real workspaces cannot execute simulated settlements against their recorded balances.
+Bank linking stays unavailable until the operator configures provider credentials and a token-encryption key. It imports cached bank snapshots, not guaranteed realtime balances. The adapter has mocked integration tests and passed a Plaid Sandbox run on 2026-09-14; production institutions have not been exercised. Card and loan terms come from Plaid when it reports them and can be entered manually otherwise. Live money movement is not implemented: real workspaces cannot execute simulated settlements against their recorded balances.
 
 Email/password authentication does not include email verification, password recovery, MFA, or household invitations. Those require additional identity/product integrations before a public rollout that depends on them.
 
@@ -86,6 +86,7 @@ Under **MCP access**, create an expiring read token for your own compatible MCP 
 - The initial screen uses one consistent bootstrap response. Dashboard calculations cache by household revision; transaction history uses an indexed, bounded read endpoint.
 - Model discovery and inference stay outside financial transaction locks. Status reads perform no network calls. Inference has a bounded admission limit, request budget, pooled client and failure cooldown.
 - Financial engines supply numbers and action states. Model wording is checked against those results; failures use calculator wording. These checks do not establish financial suitability or guarantee every generated interpretation.
+- Model wording carries figure tokens that the server fills from calculator results, so the model never types a number. Answers link the records behind them with an evidence confidence level, and unrelated requests get a fixed reply without a model call.
 
 The current aggregate snapshot includes history, so large histories still increase decode/write work. The benchmark records that cost rather than claiming unlimited scale or a hosted latency guarantee.
 

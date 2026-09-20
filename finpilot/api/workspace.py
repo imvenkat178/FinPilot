@@ -48,7 +48,7 @@ _FIELDS: dict[type, tuple[str, ...]] = {
         "minimum_payment", "due_day", "remaining_term_months", "buckets", "escrow",
         "mortgage_insurance", "prepayment_penalty", "servicer_principal_only_supported",
         "student_loan_program", "hardship_plan", "entity_id", "tax_deductible_interest",
-        "provenance", "total_required_payment",
+        "provenance", "total_required_payment", "terms_complete",
     ),
     BalanceBucket: (
         "name", "balance", "apr", "rate_type", "promo_expires", "deferred_interest_accrued",
@@ -90,7 +90,7 @@ _FIELDS: dict[type, tuple[str, ...]] = {
     Transaction: (
         "id", "account_id", "date", "amount", "description", "merchant", "mcc",
         "category", "kind", "state", "transfer_group_id", "linked_tx_id",
-        "user_corrected", "counts_as_income", "counts_as_spending",
+        "user_corrected", "counts_as_income", "counts_as_spending", "provider_category",
     ),
     Provenance: ("source", "as_of", "verification", "rule_version"),
     Schedule: (

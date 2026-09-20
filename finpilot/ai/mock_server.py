@@ -11,6 +11,7 @@ point: the guardrails must catch these, not the prompt.
     --misbehave claim_action  says a payment was scheduled when nothing was submitted
     --misbehave obey          follows an instruction planted in untrusted content
     --misbehave chatty        wraps JSON in prose, as small models do
+    --misbehave advise        adds investment advice the product never gives
 
 Run:  python -m finpilot.ai.mock_server --port 11434
 Point the app at it with FINPILOT_LLM_BASE_URL=http://localhost:11434/v1
@@ -27,8 +28,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MODEL_ID = "llama3.2-mock:1b"
 MISBEHAVE: set[str] = set()
 
-_REF = re.compile(r"not in the TOOL RESULT above, and you may not drop a stated caveat\.\n(.*?)\n\nWrite the answer", re.S)
-_QUESTION = re.compile(r"QUESTION FROM THE USER\n(.*?)\n\nTOOL RESULT", re.S)
+_REF = re.compile(r"REFERENCE ANSWER WITH FIGURE TOKENS\n(.*?)\n\nRewrite the reference answer", re.S)
+_QUESTION = re.compile(r"QUESTION FROM THE USER\n(.*?)\n\nREFERENCE ANSWER", re.S)
 _UNTRUSTED = re.compile(r"<<<UNTRUSTED_DATA[^>]*>>>\n(.*?)\n<<<END_UNTRUSTED_DATA>>>", re.S)
 
 
@@ -70,6 +71,9 @@ def _handle_chat(body: dict) -> str:
 
     if "claim_action" in MISBEHAVE:
         out += " I have scheduled the payment for you."
+
+    if "advise" in MISBEHAVE:
+        out += " You should buy an index fund with whatever is left."
 
     if "chatty" in MISBEHAVE:
         out = "Sure! Here's my answer:\n\n" + out + "\n\nHope that helps!"
@@ -136,7 +140,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=11434)
     ap.add_argument("--misbehave", nargs="*", default=[],
-                    choices=["hallucinate", "claim_action", "obey", "chatty"])
+                    choices=["hallucinate", "claim_action", "obey", "chatty", "advise"])
     a = ap.parse_args()
     srv = serve(a.port, a.misbehave)
     print(f"mock local model on http://127.0.0.1:{a.port}/v1  model={MODEL_ID} "

@@ -216,6 +216,8 @@ class WorkspaceService:
                 loan.due_day = _integer(p['due_day'], 'Payment due day', 1, 31)
             if 'remaining_term_months' in p:
                 loan.remaining_term_months = _integer(p['remaining_term_months'], 'Remaining months', 1, 1200) if p['remaining_term_months'] else None
+            if 'apr' in p and 'minimum_payment' in p and loan.minimum_payment.is_positive:
+                loan.terms_complete = True
             if a.type == AccountType.CREDIT_CARD:
                 existing_card = next((c for c in self.hh.cards.values() if c.account_id == a.id), None)
                 card = copy.deepcopy(existing_card) if existing_card else Card(account_id=a.id, grace_state=GraceState.UNKNOWN, purchase_apr=loan.apr)
@@ -458,6 +460,8 @@ class WorkspaceService:
         import re
         _fields(p, {'account_id','csv','mapping','date_format'})
         account = self._account(p.get('account_id'))
+        if account.id.startswith('acc_plaid_') and account.connection_healthy:
+            raise ValueError('This account updates from your bank connection. Import CSV files into a manual account, or disconnect the bank first.')
         raw = p.get('csv')
         if not isinstance(raw, str) or len(raw.encode('utf-8')) > MAX_CSV_BYTES:
             raise ValueError('CSV must be text smaller than 2 MB')

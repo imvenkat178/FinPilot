@@ -4,6 +4,8 @@ FinPilot has no tagged releases yet, so changes are grouped by date. Commit hash
 
 ## 2026-09-20
 
+- Continuous integration: `.github/workflows/tests.yml` runs the Python suite, the generated-documentation check and the six frontend suites that need no server, and `.github/workflows/agent-memory.yml` runs the roadmap and handoff validators, the branch check and the memory tests, on every push and pull request.
+
 - Client addresses behind a reverse proxy: `FORWARDED_ALLOW_IPS` is documented and passed through in `compose.yaml`, the `Dockerfile` records its default, and FinPilot warns at startup in production while only loopback is trusted, so sign-up and sign-in limits stop counting every user under the proxy's address. Reproduced and re-checked with an nginx container by `scripts/verify_proxy_client_addresses.py` (`validation/proxy-client-addresses.json`).
 
 ## 2026-09-19

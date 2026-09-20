@@ -1,0 +1,51 @@
+name: Agent memory
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Roadmap structure and summary
+        run: python scripts/roadmap.py check
+
+      - name: Handoff structure and roadmap links
+        run: python scripts/check_handoff.py
+
+      - name: Code changes include a handoff update
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            python scripts/check_handoff.py --base "origin/$BASE_REF"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            python scripts/check_handoff.py --base "$BEFORE"
+          else
+            echo "No earlier commit to compare with; skipping."
+          fi
+
+      - name: Memory tests
+        run: |
+          tests=""
+          for file in tests/test_handoff.py tests/test_roadmap.py tests/test_agent_memory_kit.py; do
+            if [ -f "$file" ]; then tests="$tests $file"; fi
+          done
+          if [ -n "$tests" ]; then
+            python -m pip install --quiet pytest
+            python -m pytest -q -p no:cacheprovider $tests
+          fi

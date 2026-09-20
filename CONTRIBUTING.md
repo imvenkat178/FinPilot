@@ -39,6 +39,7 @@ python scripts/check_handoff.py --strict
 - `build_docs.py` regenerates the API, capability and data model references. Run it after changing routes, assistant capabilities or database models.
 - Run the frontend suites with `node tests/<name>_frontend.mjs`; `README.md` lists every suite. Only `tests/frontend.mjs` needs the server running.
 - Fill in the pull request checklist, which asks for the roadmap and handoff updates.
+- GitHub Actions runs the same checks on every push and pull request: `.github/workflows/tests.yml` runs the Python suite, `build_docs.py --check` and the frontend suites that need no server, and `.github/workflows/agent-memory.yml` runs both memory validators, the branch check and the memory tests.
 
 ## Commits
 

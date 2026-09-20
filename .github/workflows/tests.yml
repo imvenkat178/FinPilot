@@ -1,0 +1,57 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Tests
+        # No model runtime here, so the assistant tests use their mock server and fallbacks.
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Generated reference documentation is current
+        run: python scripts/build_docs.py --check
+
+  frontend:
+    name: Frontend suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # tests/frontend.mjs is left out: it needs a running server, which waits for G5.3.
+      - name: Suites that need no server
+        run: |
+          for suite in tests/management_frontend.mjs tests/execution_frontend.mjs tests/bank_frontend.mjs \
+                       tests/assistant_frontend.mjs tests/knowledge_frontend.mjs tests/workflows_frontend.mjs; do
+            echo "== $suite"
+            node "$suite"
+          done

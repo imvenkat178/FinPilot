@@ -8,7 +8,8 @@ ROOT = Path(__file__).resolve().parent.parent
 KIT = ROOT / "docs" / "agent-memory-kit"
 TEMPLATES = KIT / "templates"
 SHARED = ["scripts/roadmap.py", "scripts/roadmap_page.html", "scripts/check_handoff.py", "tests/test_handoff.py",
-          "tests/test_roadmap.py", ".github/PULL_REQUEST_TEMPLATE.md", ".githooks/pre-push", "CLAUDE.md"]
+          "tests/test_roadmap.py", ".github/PULL_REQUEST_TEMPLATE.md", ".github/workflows/agent-memory.yml",
+          ".githooks/pre-push", "CLAUDE.md"]
 HORIZON_ROWS = ("| `short-term` |", "| `mid-term` |", "| `long-term` |")
 
 
